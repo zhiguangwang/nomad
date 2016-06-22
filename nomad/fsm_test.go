@@ -761,6 +761,44 @@ func TestFSM_UpdateAllocFromClient(t *testing.T) {
 	}
 }
 
+func TestFSM_LastApplied(t *testing.T) {
+	fsm := testFSM(t)
+
+	node := mock.Node()
+	req := structs.NodeRegisterRequest{
+		Node: node,
+	}
+	buf, err := structs.Encode(structs.NodeRegisterRequestType, req)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// Insert a log and check the LastApplied index
+	l1 := makeLog(buf)
+	l1.Index = 10
+	resp := fsm.Apply(l1)
+	if resp != nil {
+		t.Fatalf("resp: %v", resp)
+	}
+
+	if act := fsm.LastApplied(); act != l1.Index {
+		t.Fatalf("LastApplied() returned %d; want %d", act, l1.Index)
+	}
+
+	// Insert a log at a higher index and check the LastApplied index was
+	// updated
+	l2 := makeLog(buf)
+	l2.Index = 1001
+	resp = fsm.Apply(l2)
+	if resp != nil {
+		t.Fatalf("resp: %v", resp)
+	}
+
+	if act := fsm.LastApplied(); act != l2.Index {
+		t.Fatalf("LastApplied() returned %d; want %d", act, l2.Index)
+	}
+}
+
 func testSnapshotRestore(t *testing.T, fsm *nomadFSM) *nomadFSM {
 	// Snapshot
 	snap, err := fsm.Snapshot()
@@ -784,6 +822,33 @@ func testSnapshotRestore(t *testing.T, fsm *nomadFSM) *nomadFSM {
 		t.Fatalf("err: %v", err)
 	}
 	return fsm2
+}
+
+func TestFSM_SnapshotRestore_LastIndex(t *testing.T) {
+	// Add some state
+	fsm := testFSM(t)
+	node := mock.Node()
+	req := structs.NodeRegisterRequest{
+		Node: node,
+	}
+	buf, err := structs.Encode(structs.NodeRegisterRequestType, req)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// Insert a log and check the LastApplied index
+	l1 := makeLog(buf)
+	l1.Index = 10
+	resp := fsm.Apply(l1)
+	if resp != nil {
+		t.Fatalf("resp: %v", resp)
+	}
+
+	// Verify the contents
+	fsm2 := testSnapshotRestore(t, fsm)
+	if fsm.LastApplied() != fsm2.LastApplied() {
+		t.Fatalf("Restored.LastApplied() returned %d; want %d", fsm2.LastApplied(), fsm.LastApplied())
+	}
 }
 
 func TestFSM_SnapshotRestore_Nodes(t *testing.T) {

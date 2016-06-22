@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync/atomic"
 	"time"
 
 	"github.com/armon/go-metrics"
@@ -46,18 +47,23 @@ type nomadFSM struct {
 	logger             *log.Logger
 	state              *state.StateStore
 	timetable          *TimeTable
+	lastApplied        uint64
 }
 
 // nomadSnapshot is used to provide a snapshot of the current
 // state in a way that can be accessed concurrently with operations
 // that may modify the live state.
 type nomadSnapshot struct {
-	snap      *state.StateSnapshot
-	timetable *TimeTable
+	snap        *state.StateSnapshot
+	timetable   *TimeTable
+	lastApplied uint64
 }
 
 // snapshotHeader is the first entry in our snapshot
 type snapshotHeader struct {
+	// LastApplied is used to restore the lastApplied index when restoring from
+	// a snapshot
+	LastApplied uint64
 }
 
 // NewFSMPath is used to construct a new FSM with a blank state
@@ -96,9 +102,17 @@ func (n *nomadFSM) TimeTable() *TimeTable {
 	return n.timetable
 }
 
+// LastApplied returns the last applied index
+func (n *nomadFSM) LastApplied() uint64 {
+	return atomic.LoadUint64(&n.lastApplied)
+}
+
 func (n *nomadFSM) Apply(log *raft.Log) interface{} {
 	buf := log.Data
 	msgType := structs.MessageType(buf[0])
+
+	// Update the last applied index
+	atomic.StoreUint64(&n.lastApplied, log.Index)
 
 	// Witness this write
 	n.timetable.Witness(log.Index, time.Now().UTC())
@@ -435,8 +449,9 @@ func (n *nomadFSM) Snapshot() (raft.FSMSnapshot, error) {
 	}
 
 	ns := &nomadSnapshot{
-		snap:      snap,
-		timetable: n.timetable,
+		snap:        snap,
+		timetable:   n.timetable,
+		lastApplied: atomic.LoadUint64(&n.lastApplied),
 	}
 	return ns, nil
 }
@@ -466,6 +481,9 @@ func (n *nomadFSM) Restore(old io.ReadCloser) error {
 	if err := dec.Decode(&header); err != nil {
 		return err
 	}
+
+	// Restore the last applied index
+	n.lastApplied = header.LastApplied
 
 	// Populate the new state
 	msgType := make([]byte, 1)
@@ -555,7 +573,9 @@ func (s *nomadSnapshot) Persist(sink raft.SnapshotSink) error {
 	encoder := codec.NewEncoder(sink, structs.MsgpackHandle)
 
 	// Write the header
-	header := snapshotHeader{}
+	header := snapshotHeader{
+		LastApplied: s.lastApplied,
+	}
 	if err := encoder.Encode(&header); err != nil {
 		sink.Cancel()
 		return err
