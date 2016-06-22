@@ -216,7 +216,8 @@ func (w *Worker) waitForIndex(index uint64, timeout time.Duration) error {
 	defer metrics.MeasureSince([]string{"nomad", "worker", "wait_for_index"}, start)
 CHECK:
 	// We only need the FSM state to be as recent as the given index
-	appliedIndex := w.srv.raft.AppliedIndex()
+	appliedIndex := w.srv.fsm.LastApplied()
+	w.logger.Printf("ALEX: Waiting for index %d; last applied %d", index, appliedIndex)
 	if index <= appliedIndex {
 		w.backoffReset()
 		return nil

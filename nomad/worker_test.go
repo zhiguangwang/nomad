@@ -203,7 +203,24 @@ func TestWorker_waitForIndex(t *testing.T) {
 	// Cause an increment
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		s1.raft.Barrier(0)
+
+		node := mock.Node()
+		req := structs.NodeRegisterRequest{
+			Node: node,
+		}
+		buf, err := structs.Encode(structs.NodeRegisterRequestType, req)
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+
+		// Insert a log and check the LastApplied index
+		log := makeLog(buf)
+		log.Index = index + 1
+		resp := s1.fsm.Apply(log)
+		if resp != nil {
+			t.Fatalf("resp: %v", resp)
+		}
+		s1.fsm.Apply(log)
 	}()
 
 	// Wait for a future index
