@@ -334,6 +334,10 @@ func (s *StateStore) UpsertJob(index uint64, job *structs.Job) error {
 	watcher.Add(watch.Item{Table: "jobs"})
 	watcher.Add(watch.Item{Job: job.ID})
 
+	if job.ID == "atlas-blue" || job.Name == "atlas-blue" {
+		s.logger.Printf("DIPTANU UPSERT JOB %#v", job)
+	}
+
 	// Check if the job already exists
 	existing, err := txn.First("jobs", "id", job.ID)
 	if err != nil {
@@ -944,11 +948,11 @@ func (s *StateStore) UpsertAllocs(index uint64, allocs []*structs.Allocation) er
 	// Handle the allocations
 	jobs := make(map[string]string, 1)
 	for _, alloc := range allocs {
+		rawJob, err := txn.First("jobs", "id", alloc.JobID)
 		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" || alloc.JobID == "atlas-blue" {
-			s.logger.Printf("DIPTANU FOUND ALLOC UPSERT ALLOC 1111: %v", alloc)
+			s.logger.Printf("DIPTANU FOUND ALLOC UPSERT ALLOC 1111: %#v \n RAW JOB %v", alloc, rawJob)
 		}
 
-		rawJob, err := txn.First("jobs", "id", alloc.JobID)
 		if err != nil {
 			return fmt.Errorf("unable to query job: %v", err)
 		}

@@ -524,6 +524,10 @@ func (n *nomadFSM) Restore(old io.ReadCloser) error {
 			// the incoming job.
 			job.Canonicalize()
 
+			if job.ID == "atlas-blue" || job.Name == "atlas-blue" {
+				n.logger.Printf("DIPTANU JOB RESTORE %#v", job)
+			}
+
 			if err := restore.JobRestore(job); err != nil {
 				return err
 			}
