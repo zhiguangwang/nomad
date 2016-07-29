@@ -334,10 +334,6 @@ func (s *StateStore) UpsertJob(index uint64, job *structs.Job) error {
 	watcher.Add(watch.Item{Table: "jobs"})
 	watcher.Add(watch.Item{Job: job.ID})
 
-	if job.ID == "atlas-blue" || job.Name == "atlas-blue" {
-		s.logger.Printf("DIPTANU UPSERT JOB %#v", job)
-	}
-
 	// Check if the job already exists
 	existing, err := txn.First("jobs", "id", job.ID)
 	if err != nil {
@@ -863,20 +859,6 @@ func (s *StateStore) UpdateAllocsFromClient(index uint64, allocs []*structs.Allo
 
 	// Handle each of the updated allocations
 	for _, alloc := range allocs {
-		rawJob, err := txn.First("jobs", "id", alloc.JobID)
-		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" || alloc.JobID == "atlas-blue" {
-			s.logger.Printf("DIPTANU UPSERT ALLOC 1111: Index: %v, ID: %v, TG: %v, Name: %v, ClientStatus: %v, Desired Status: %v, \n RAW JOB %v", index, alloc.ID, alloc.TaskGroup,
-				alloc.Name, alloc.ClientStatus, alloc.DesiredStatus, rawJob != nil)
-		}
-
-		if err != nil {
-			return fmt.Errorf("unable to query job: %v", err)
-		}
-		if rawJob != nil {
-			if err := s.updateSummaryWithAlloc(index, alloc, watcher, txn); err != nil {
-				return fmt.Errorf("error updating job summary: %v", err)
-			}
-		}
 		if err := s.nestedUpdateAllocFromClient(txn, watcher, index, alloc); err != nil {
 			return err
 		}
@@ -890,9 +872,9 @@ func (s *StateStore) UpdateAllocsFromClient(index uint64, allocs []*structs.Allo
 	txn.Defer(func() { s.watch.notify(watcher) })
 	txn.Commit()
 	for _, alloc := range allocs {
-		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" || alloc.JobID == "atlas-blue" {
+		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" {
 			js, _ := s.JobSummaryByID(alloc.JobID)
-			s.logger.Printf("DIPTANU JOB SUMMARY: %#v", js)
+			s.logger.Printf("Job Summary after update from client: Index: %v, %#v", index, js)
 		}
 	}
 	return nil
@@ -911,6 +893,20 @@ func (s *StateStore) nestedUpdateAllocFromClient(txn *memdb.Txn, watcher watch.I
 		return nil
 	}
 	exist := existing.(*structs.Allocation)
+	rawJob, err := txn.First("jobs", "id", alloc.JobID)
+	if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" {
+		s.logger.Printf("DIPTANU UPDATE ALLOC FROM CLIENT: Index: %v, ID: %v, TG: %v, Name: %v, ClientStatus: %v, Desired Status: %v, \n RAW JOB %v", index, alloc.ID, alloc.TaskGroup,
+			alloc.Name, alloc.ClientStatus, alloc.DesiredStatus, rawJob != nil)
+	}
+
+	if err != nil {
+		return fmt.Errorf("unable to query job: %v", err)
+	}
+	if rawJob != nil {
+		if err := s.updateSummaryWithAlloc(index, alloc, watcher, txn); err != nil {
+			return fmt.Errorf("error updating job summary: %v", err)
+		}
+	}
 
 	// Trigger the watcher
 	watcher.Add(watch.Item{Alloc: alloc.ID})
@@ -960,8 +956,8 @@ func (s *StateStore) UpsertAllocs(index uint64, allocs []*structs.Allocation) er
 	jobs := make(map[string]string, 1)
 	for _, alloc := range allocs {
 		rawJob, err := txn.First("jobs", "id", alloc.JobID)
-		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" || alloc.JobID == "atlas-blue" {
-			s.logger.Printf("DIPTANU UPSERT ALLOC 1111: Index: %v, ID: %v, TG: %v, Name: %v, ClientStatus: %v, Desired Status: %v, \n RAW JOB %v", index, alloc.ID, alloc.TaskGroup,
+		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" {
+			s.logger.Printf("DIPTANU UPSERT ALLOC: Index: %v, ID: %v, TG: %v, Name: %v, ClientStatus: %v, Desired Status: %v, \n RAW JOB %v", index, alloc.ID, alloc.TaskGroup,
 				alloc.Name, alloc.ClientStatus, alloc.DesiredStatus, rawJob != nil)
 		}
 		if err != nil {
@@ -1019,9 +1015,9 @@ func (s *StateStore) UpsertAllocs(index uint64, allocs []*structs.Allocation) er
 	txn.Defer(func() { s.watch.notify(watcher) })
 	txn.Commit()
 	for _, alloc := range allocs {
-		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" || alloc.JobID == "atlas-blue" {
+		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" {
 			js, _ := s.JobSummaryByID(alloc.JobID)
-			s.logger.Printf("Job Summary: %v", js)
+			s.logger.Printf("Job Summary after upsert allocs: Index: %v, %#v", index, js)
 		}
 	}
 	return nil
