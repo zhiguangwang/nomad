@@ -1,6 +1,8 @@
 package state
 
 import (
+	"fmt"
+	"log"
 	"os"
 	"reflect"
 	"sort"
@@ -1167,7 +1169,7 @@ func TestStateStore_CreateJobSummaries(t *testing.T) {
 	}
 
 	// Create the job summaries
-	if err := restore.CreateJobSummaries([]*structs.Job{job}); err != nil {
+	if err := restore.CreateJobSummaries([]*structs.Job{job}, log.New(os.Stdout, "", 0)); err != nil {
 		t.Fatalf("err: %v", err)
 	}
 	restore.Commit()
@@ -1802,6 +1804,66 @@ func TestStateStore_UpsertAlloc_Alloc(t *testing.T) {
 	}
 
 	notify.verify(t)
+}
+
+func TestStateStore_UpsertAlloc_Invalid(t *testing.T) {
+	state := testStateStore(t)
+	alloc := mock.Alloc()
+
+	if err := state.UpsertJob(999, alloc.Job); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	alloc.ClientStatus = structs.AllocClientStatusPending
+	alloc.DesiredStatus = structs.AllocDesiredStatusRun
+
+	err := state.UpsertAllocs(65594, []*structs.Allocation{alloc})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	alloc1 := new(structs.Allocation)
+	*alloc1 = *alloc
+	alloc1.ClientStatus = structs.AllocClientStatusPending
+	alloc1.DesiredStatus = ""
+
+	if err := state.UpdateAllocsFromClient(65596, []*structs.Allocation{alloc1}); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	alloc2 := new(structs.Allocation)
+	*alloc2 = *alloc
+	alloc2.ClientStatus = structs.AllocClientStatusRunning
+	alloc2.DesiredStatus = ""
+
+	if err := state.UpdateAllocsFromClient(65597, []*structs.Allocation{alloc2}); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	alloc3 := new(structs.Allocation)
+	*alloc3 = *alloc
+	alloc3.ClientStatus = structs.AllocClientStatusRunning
+	alloc3.DesiredStatus = ""
+	if err := state.UpdateAllocsFromClient(65602, []*structs.Allocation{alloc3}); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	alloc4 := new(structs.Allocation)
+	*alloc4 = *alloc
+	alloc4.ClientStatus = structs.AllocClientStatusPending
+	alloc4.DesiredStatus = structs.AllocDesiredStatusRun
+	if err := state.UpsertAllocs(65628, []*structs.Allocation{alloc4}); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	alloc5 := new(structs.Allocation)
+	*alloc5 = *alloc
+	alloc5.ClientStatus = structs.AllocClientStatusPending
+	alloc5.DesiredStatus = structs.AllocDesiredStatusRun
+	if err := state.UpsertAllocs(66009, []*structs.Allocation{alloc4}); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	summary, err := state.JobSummaryByID(alloc.JobID)
+	fmt.Printf("Summary : %v", summary)
 }
 
 func TestStateStore_UpdateAlloc_Alloc(t *testing.T) {

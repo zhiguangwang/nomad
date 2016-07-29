@@ -1376,10 +1376,11 @@ func (s *StateStore) updateSummaryWithAlloc(index uint64, alloc *structs.Allocat
 	jobSummary := summary.Copy()
 
 	// Look for existing alloc
-	existing, err := s.AllocByID(alloc.ID)
+	existingAllocRaw, err := txn.First("allocs", "id", alloc.ID)
 	if err != nil {
 		return fmt.Errorf("alloc lookup failed: %v", err)
 	}
+	existing, _ := (existingAllocRaw).(*structs.Allocation)
 
 	tgSummary, ok := jobSummary.Summary[alloc.TaskGroup]
 	if !ok {
