@@ -542,6 +542,9 @@ func (n *nomadFSM) Restore(old io.ReadCloser) error {
 			if err := dec.Decode(alloc); err != nil {
 				return err
 			}
+			if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" || alloc.JobID == "atlas-blue" {
+				n.logger.Printf("DIPTANU FOUND ALLOC DURING RESTORE: %v", alloc)
+			}
 			if err := restore.AllocRestore(alloc); err != nil {
 				return err
 			}
