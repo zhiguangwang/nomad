@@ -944,6 +944,10 @@ func (s *StateStore) UpsertAllocs(index uint64, allocs []*structs.Allocation) er
 	// Handle the allocations
 	jobs := make(map[string]string, 1)
 	for _, alloc := range allocs {
+		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" || alloc.JobID == "atlas-blue" {
+			s.logger.Printf("DIPTANU FOUND ALLOC UPSERT ALLOC 1111: %v", alloc)
+		}
+
 		rawJob, err := txn.First("jobs", "id", alloc.JobID)
 		if err != nil {
 			return fmt.Errorf("unable to query job: %v", err)
