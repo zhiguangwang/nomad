@@ -864,6 +864,11 @@ func (s *StateStore) UpdateAllocsFromClient(index uint64, allocs []*structs.Allo
 	// Handle each of the updated allocations
 	for _, alloc := range allocs {
 		rawJob, err := txn.First("jobs", "id", alloc.JobID)
+		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" || alloc.JobID == "atlas-blue" {
+			s.logger.Printf("DIPTANU UPSERT ALLOC 1111: Index: %v, ID: %v, TG: %v, Name: %v, ClientStatus: %v, Desired Status: %v, \n RAW JOB %v", index, alloc.ID, alloc.TaskGroup,
+				alloc.Name, alloc.ClientStatus, alloc.DesiredStatus, rawJob != nil)
+		}
+
 		if err != nil {
 			return fmt.Errorf("unable to query job: %v", err)
 		}
@@ -884,6 +889,12 @@ func (s *StateStore) UpdateAllocsFromClient(index uint64, allocs []*structs.Allo
 
 	txn.Defer(func() { s.watch.notify(watcher) })
 	txn.Commit()
+	for _, alloc := range allocs {
+		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" || alloc.JobID == "atlas-blue" {
+			js, _ := s.JobSummaryByID(alloc.JobID)
+			s.logger.Printf("DIPTANU JOB SUMMARY: %#v", js)
+		}
+	}
 	return nil
 }
 
@@ -950,9 +961,9 @@ func (s *StateStore) UpsertAllocs(index uint64, allocs []*structs.Allocation) er
 	for _, alloc := range allocs {
 		rawJob, err := txn.First("jobs", "id", alloc.JobID)
 		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" || alloc.JobID == "atlas-blue" {
-			s.logger.Printf("DIPTANU FOUND ALLOC UPSERT ALLOC 1111: %#v \n RAW JOB %v", alloc, rawJob)
+			s.logger.Printf("DIPTANU UPSERT ALLOC 1111: Index: %v, ID: %v, TG: %v, Name: %v, ClientStatus: %v, Desired Status: %v, \n RAW JOB %v", index, alloc.ID, alloc.TaskGroup,
+				alloc.Name, alloc.ClientStatus, alloc.DesiredStatus, rawJob != nil)
 		}
-
 		if err != nil {
 			return fmt.Errorf("unable to query job: %v", err)
 		}
@@ -1007,6 +1018,12 @@ func (s *StateStore) UpsertAllocs(index uint64, allocs []*structs.Allocation) er
 
 	txn.Defer(func() { s.watch.notify(watcher) })
 	txn.Commit()
+	for _, alloc := range allocs {
+		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" || alloc.JobID == "atlas-blue" {
+			js, _ := s.JobSummaryByID(alloc.JobID)
+			s.logger.Printf("Job Summary: %v", js)
+		}
+	}
 	return nil
 }
 
