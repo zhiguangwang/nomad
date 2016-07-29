@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"runtime/debug"
 	"sync"
 
 	"github.com/hashicorp/go-memdb"
@@ -863,6 +864,7 @@ func (s *StateStore) Evals() (memdb.ResultIterator, error) {
 // the desired state comes from the schedulers, while the actual state comes
 // from clients.
 func (s *StateStore) UpdateAllocsFromClient(index uint64, allocs []*structs.Allocation) error {
+	s.logger.Printf(string(debug.Stack()))
 	txn := s.db.Txn(true)
 	defer txn.Abort()
 
@@ -959,6 +961,7 @@ func (s *StateStore) nestedUpdateAllocFromClient(txn *memdb.Txn, watcher watch.I
 // UpsertAllocs is used to evict a set of allocations
 // and allocate new ones at the same time.
 func (s *StateStore) UpsertAllocs(index uint64, allocs []*structs.Allocation) error {
+	s.logger.Printf(string(debug.Stack()))
 	txn := s.db.Txn(true)
 	defer txn.Abort()
 
