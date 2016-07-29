@@ -584,10 +584,26 @@ func (n *nomadFSM) Restore(old io.ReadCloser) error {
 	// job summaries so that the indexes are updated and we know the highest
 	// index
 	// COMPAT 0.4 -> 0.4.1
+	restore.Commit()
+
+	// Reconciling the queued allocations
+	return n.reconcileSummaries()
+}
+
+// reconcileSummaries re-calculates the queued allocations for every job that we
+// created a Job Summary during the snap shot restore
+func (n *nomadFSM) reconcileSummaries() error {
+	// Start the state restore
+	restore, err := n.state.Restore()
+	if err != nil {
+		return err
+	}
+	defer restore.Abort()
 	jobs, err := restore.JobsWithoutSummary()
 	if err != nil {
 		fmt.Errorf("error retreiving jobs during restore: %v", err)
 	}
+
 	for _, job := range jobs {
 		n.logger.Printf("DIPTANU CREATING JOB SUMMARY FOR JOB %v", job.ID)
 	}
@@ -595,21 +611,6 @@ func (n *nomadFSM) Restore(old io.ReadCloser) error {
 		return fmt.Errorf("error creating job summaries: %v", err)
 	}
 
-	restore.Commit()
-
-	// Reconciling the queued allocations
-	return n.reconcileSummaries(jobs)
-}
-
-// reconcileSummaries re-calculates the queued allocations for every job that we
-// created a Job Summary during the snap shot restore
-func (n *nomadFSM) reconcileSummaries(jobs []*structs.Job) error {
-	// Start the state restore
-	restore, err := n.state.Restore()
-	if err != nil {
-		return err
-	}
-	defer restore.Abort()
 	snap, err := n.state.Snapshot()
 	if err != nil {
 		return fmt.Errorf("unable to create snapshot: %v", err)
