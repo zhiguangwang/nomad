@@ -1585,6 +1585,13 @@ func (r *StateRestore) CreateJobSummaries(jobs []*structs.Job, logger *log.Logge
 			allocs = append(allocs, raw.(*structs.Allocation))
 		}
 
+		if job.ID == "atlas-blue" {
+			logger.Printf("DIPTANU ALLOCS FOR ATLAS BLUE %v", len(allocs))
+			for _, a := range allocs {
+				logger.Printf("DIPTANU ALLOC %#v", a)
+			}
+		}
+
 		// Create a job summary for the job
 		summary := structs.JobSummary{
 			JobID:   job.ID,
