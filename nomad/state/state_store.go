@@ -1401,8 +1401,16 @@ func (s *StateStore) updateSummaryWithAlloc(index uint64, alloc *structs.Allocat
 		// Decrementing the count of the bin of the last state
 		switch existing.ClientStatus {
 		case structs.AllocClientStatusRunning:
+			if tgSummary.Running == 0 {
+				s.logger.Printf("DEBUG LOG existing alloc %#v \n new alloc %#v \n job summary %#v", existing, alloc, jobSummary)
+				panic("tgSummary.Running is zero and is being decremented")
+			}
 			tgSummary.Running -= 1
 		case structs.AllocClientStatusPending:
+			if tgSummary.Starting == 0 {
+				s.logger.Printf("DEBUG LOG existing alloc %#v \n new alloc %#v \n job summary %#v", existing, alloc, jobSummary)
+				panic("tgSummary.Starting is zero and is being decremented")
+			}
 			tgSummary.Starting -= 1
 		case structs.AllocClientStatusLost:
 			tgSummary.Lost -= 1
@@ -1561,7 +1569,7 @@ func (r *StateRestore) JobsWithoutSummary() ([]*structs.Job, error) {
 }
 
 // CreateJobSummaries computes the job summaries for all the jobs
-func (r *StateRestore) CreateJobSummaries(jobs []*structs.Job) error {
+func (r *StateRestore) CreateJobSummaries(jobs []*structs.Job, logger *log.Logger) error {
 	for _, job := range jobs {
 		// Get all the allocations for the job
 		iter, err := r.txn.Get("allocs", "job", job.ID)
@@ -1606,6 +1614,8 @@ func (r *StateRestore) CreateJobSummaries(jobs []*structs.Job) error {
 		// Insert the job summary
 		summary.CreateIndex = r.latestIndex
 		summary.ModifyIndex = r.latestIndex
+
+		logger.Printf("DIPTANU INSERTING JOB SUMMARY DURING RESTORE %#v", summary)
 		if err := r.txn.Insert("job_summary", summary); err != nil {
 			return fmt.Errorf("error inserting job summary: %v", err)
 		}

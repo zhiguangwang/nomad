@@ -565,6 +565,7 @@ func (n *nomadFSM) Restore(old io.ReadCloser) error {
 			}
 
 		case JobSummarySnapshot:
+			continue
 			summary := new(structs.JobSummary)
 			if err := dec.Decode(summary); err != nil {
 				return err
@@ -587,7 +588,10 @@ func (n *nomadFSM) Restore(old io.ReadCloser) error {
 	if err != nil {
 		fmt.Errorf("error retreiving jobs during restore: %v", err)
 	}
-	if err := restore.CreateJobSummaries(jobs); err != nil {
+	for _, job := range jobs {
+		n.logger.Printf("DIPTANU CREATING JOB SUMMARY FOR JOB %v", job.ID)
+	}
+	if err := restore.CreateJobSummaries(jobs, n.logger); err != nil {
 		return fmt.Errorf("error creating job summaries: %v", err)
 	}
 
@@ -651,6 +655,7 @@ func (n *nomadFSM) reconcileSummaries(jobs []*structs.Job) error {
 			summary.Summary[tg] = tgSummary
 		}
 
+		n.logger.Printf("DIPTANU RECONCILE QUEUED STATE %v", summary)
 		if err := restore.JobSummaryRestore(summary); err != nil {
 			return err
 		}
