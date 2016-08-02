@@ -977,6 +977,18 @@ func (s *StateStore) UpsertAllocs(index uint64, allocs []*structs.Allocation) er
 		}
 		exist, _ := existing.(*structs.Allocation)
 
+		if exist == nil {
+			alloc.CreateIndex = index
+			alloc.ModifyIndex = index
+			alloc.AllocModifyIndex = index
+		} else {
+			alloc.CreateIndex = exist.CreateIndex
+			alloc.ModifyIndex = index
+			alloc.AllocModifyIndex = index
+			alloc.ClientStatus = exist.ClientStatus
+			alloc.ClientDescription = exist.ClientDescription
+		}
+
 		rawJob, err := txn.First("jobs", "id", alloc.JobID)
 		if alloc.ID == "de31d58e-fdda-f8f8-4e6a-227f7b6e1564" {
 			s.logger.Printf("DIPTANU UPSERT ALLOC: Index: %v, ID: %v, TG: %v, Name: %v, ClientStatus: %v, Desired Status: %v, \n RAW JOB %v", index, alloc.ID, alloc.TaskGroup,
@@ -991,17 +1003,6 @@ func (s *StateStore) UpsertAllocs(index uint64, allocs []*structs.Allocation) er
 			}
 		}
 
-		if exist == nil {
-			alloc.CreateIndex = index
-			alloc.ModifyIndex = index
-			alloc.AllocModifyIndex = index
-		} else {
-			alloc.CreateIndex = exist.CreateIndex
-			alloc.ModifyIndex = index
-			alloc.AllocModifyIndex = index
-			alloc.ClientStatus = exist.ClientStatus
-			alloc.ClientDescription = exist.ClientDescription
-		}
 		if err := txn.Insert("allocs", alloc); err != nil {
 			return fmt.Errorf("alloc insert failed: %v", err)
 		}
