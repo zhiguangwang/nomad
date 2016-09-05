@@ -1,15 +1,47 @@
 package agent
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
+	"github.com/docker/docker/pkg/ioutils"
+	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/nomad/structs"
+	"github.com/ugorji/go/codec"
 )
 
 const (
-	allocNotFoundErr = "allocation not found"
+	allocNotFoundErr    = "allocation not found"
+	resourceNotFoundErr = "resource not found"
 )
+
+const (
+	SnapshotIndexType = iota
+	SnapshotFileType
+)
+
+type SnapshotFile struct {
+	IsDir    bool
+	FilePath string
+	Checksum string
+}
+
+type SnapshotIndex struct {
+	Files []*SnapshotFile
+}
+
+type SnapshotFileContent struct {
+	Encoding string
+	Data     []byte
+	FilePath string
+}
+
+type SnapshotFrame struct {
+	MessageType int
+	Message     interface{}
+}
 
 func (s *HTTPServer) AllocsRequest(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
 	if req.Method != "GET" {
@@ -68,12 +100,96 @@ func (s *HTTPServer) ClientAllocRequest(resp http.ResponseWriter, req *http.Requ
 	// tokenize the suffix of the path to get the alloc id and find the action
 	// invoked on the alloc id
 	tokens := strings.Split(reqSuffix, "/")
-	if len(tokens) == 1 || tokens[1] != "stats" {
-		return nil, CodedError(404, allocNotFoundErr)
+	if len(tokens) != 2 {
+		return nil, CodedError(404, resourceNotFoundErr)
 	}
+
 	allocID := tokens[0]
 
-	// Get the stats reporter
+	switch tokens[1] {
+	case "stats":
+		return s.allocStats(allocID, resp, req)
+	case "snapshot":
+		return s.allocSnapshot(allocID, resp, req)
+	}
+
+	return nil, CodedError(404, resourceNotFoundErr)
+}
+
+func (s *HTTPServer) allocSnapshot(allocID string, resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+	allocFS, err := s.agent.client.GetAllocFS(allocID)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't retrieve allocation: %v", err)
+	}
+
+	var files []*SnapshotFile
+	walkFn := func(path string, fileInfo *allocdir.AllocFileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		path, err = allocFS.Rel(path)
+		if err != nil {
+			return err
+		}
+		files = append(files, &SnapshotFile{
+			IsDir:    fileInfo.IsDir,
+			FilePath: path,
+		})
+		return nil
+	}
+	if err := allocFS.WalkDataDirs(walkFn); err != nil {
+		return nil, fmt.Errorf("error walking allocation dir: %v", err)
+	}
+
+	output := ioutils.NewWriteFlusher(resp)
+	enc := codec.NewEncoder(output, jsonHandle)
+	ssFrame := &SnapshotFrame{
+		MessageType: SnapshotIndexType,
+		Message:     files,
+	}
+
+	if err := enc.Encode(ssFrame); err != nil {
+		return nil, fmt.Errorf("unable to encode snapshot frame: %v", err)
+	}
+
+	buf := make([]byte, 32)
+	for _, file := range files {
+		if !file.IsDir {
+			r, err := allocFS.ReadAt(file.FilePath, 0)
+			if err != nil {
+				return nil, err
+			}
+			for {
+				n, err := r.Read(buf)
+				if err != nil && err != io.EOF {
+					return nil, err
+				}
+				if n > 0 {
+					data := &SnapshotFileContent{
+						Encoding: "text",
+						Data:     buf[:n],
+						FilePath: file.FilePath,
+					}
+
+					ssFrame := &SnapshotFrame{
+						MessageType: SnapshotFileType,
+						Message:     data,
+					}
+
+					if err := enc.Encode(ssFrame); err != nil {
+						return nil, err
+					}
+				}
+				if err == io.EOF {
+					break
+				}
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (s *HTTPServer) allocStats(allocID string, resp http.ResponseWriter, req *http.Request) (interface{}, error) {
 	clientStats := s.agent.client.StatsReporter()
 	aStats, err := clientStats.GetAllocStats(allocID)
 	if err != nil {

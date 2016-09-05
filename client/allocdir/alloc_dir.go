@@ -103,6 +103,18 @@ type AllocFileInfo struct {
 	ModTime  time.Time
 }
 
+func ToAllocFileInfo(fileInfo os.FileInfo) *AllocFileInfo {
+	return &AllocFileInfo{
+		Name:     fileInfo.Name(),
+		IsDir:    fileInfo.IsDir(),
+		Size:     fileInfo.Size(),
+		FileMode: fileInfo.Mode().String(),
+		ModTime:  fileInfo.ModTime(),
+	}
+}
+
+type WalkFn func(path string, info *AllocFileInfo, err error) error
+
 // AllocDirFS exposes file operations on the alloc dir
 type AllocDirFS interface {
 	List(path string) ([]*AllocFileInfo, error)
@@ -110,6 +122,8 @@ type AllocDirFS interface {
 	ReadAt(path string, offset int64) (io.ReadCloser, error)
 	BlockUntilExists(path string, t *tomb.Tomb) chan error
 	ChangeEvents(path string, curOffset int64, t *tomb.Tomb) (*watch.FileChanges, error)
+	WalkDataDirs(walkFn WalkFn) error
+	Rel(absPath string) (string, error)
 }
 
 // NewAllocDir initializes the AllocDir struct with allocDir as base path for
@@ -125,6 +139,10 @@ func NewAllocDir(allocDir string, maxSize int) *AllocDir {
 	}
 	d.SharedDir = filepath.Join(d.AllocDir, SharedAllocName)
 	return d
+}
+
+func (d *AllocDir) Rel(absPath string) (string, error) {
+	return filepath.Rel(d.AllocDir, absPath)
 }
 
 // Tears down previously build directory structure.
@@ -408,6 +426,27 @@ func (d *AllocDir) List(path string) ([]*AllocFileInfo, error) {
 		}
 	}
 	return files, err
+}
+
+// WalkDataDirs walks a path relative to the root of the alloc dir
+func (d *AllocDir) WalkDataDirs(walkFn WalkFn) error {
+	allocDataDir := filepath.Join(d.SharedDir, "data")
+	rootPaths := []string{allocDataDir}
+	for _, path := range d.TaskDirs {
+		taskLocaPath := filepath.Join(path, "local")
+		rootPaths = append(rootPaths, taskLocaPath)
+	}
+
+	var merr multierror.Error
+	wrappedWalkFn := func(path string, fileInfo os.FileInfo, err error) error {
+		return walkFn(path, ToAllocFileInfo(fileInfo), err)
+	}
+	for _, path := range rootPaths {
+		if err := filepath.Walk(path, wrappedWalkFn); err != nil {
+			merr.Errors = append(merr.Errors, err)
+		}
+	}
+	return merr.ErrorOrNil()
 }
 
 // Stat returns information about the file at a path relative to the alloc dir
