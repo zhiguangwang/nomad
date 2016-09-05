@@ -478,7 +478,7 @@ func (c *Client) restoreState() error {
 			c.logger.Printf("[ERR] client: failed to restore state for alloc %s: %v", id, err)
 			mErr.Errors = append(mErr.Errors, err)
 		} else {
-			go ar.Run()
+			go ar.Run(nil)
 		}
 	}
 	return mErr.ErrorOrNil()
@@ -1286,7 +1286,12 @@ func (c *Client) addAlloc(alloc *structs.Allocation) error {
 	c.configLock.RLock()
 	ar := NewAllocRunner(c.logger, c.configCopy, c.updateAllocStatus, alloc)
 	c.configLock.RUnlock()
-	go ar.Run()
+
+	var allocDir *allocdir.AllocDir
+	if ar, ok := c.getAllocRunners()[alloc.PreviousAllocation]; ok {
+		allocDir = ar.ctx.AllocDir
+	}
+	go ar.Run(allocDir)
 
 	// Store the alloc runner.
 	c.allocLock.Lock()

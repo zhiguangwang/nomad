@@ -173,6 +173,30 @@ func (d *AllocDir) UnmountAll() error {
 	return mErr.ErrorOrNil()
 }
 
+// Move moves the shared data and task local dirs
+func (d *AllocDir) Move(other *AllocDir, tasks []*structs.Task) error {
+	// Move the data directory
+	otherDataDir := filepath.Join(other.SharedDir, "data")
+	dataDir := filepath.Join(d.SharedDir, "data")
+	if err := os.Rename(otherDataDir, dataDir); err != nil {
+		return fmt.Errorf("error moving data dir: %v", err)
+	}
+
+	// Move the task directories
+	for _, task := range tasks {
+		taskDir := filepath.Join(other.AllocDir, task.Name)
+		otherTaskLocal := filepath.Join(taskDir, TaskLocal)
+
+		if taskDir, ok := d.TaskDirs[task.Name]; ok {
+			if err := os.Rename(otherTaskLocal, filepath.Join(taskDir, TaskLocal)); err != nil {
+				return fmt.Errorf("error moving task local dir: %v", err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // Given a list of a task build the correct alloc structure.
 func (d *AllocDir) Build(tasks []*structs.Task) error {
 	// Make the alloc directory, owned by the nomad process.

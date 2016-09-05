@@ -370,7 +370,7 @@ func (r *AllocRunner) appendTaskEvent(state *structs.TaskState, event *structs.T
 }
 
 // Run is a long running goroutine used to manage an allocation
-func (r *AllocRunner) Run() {
+func (r *AllocRunner) Run(previousAllocDir *allocdir.AllocDir) {
 	defer close(r.waitCh)
 	go r.dirtySyncState()
 
@@ -392,6 +392,14 @@ func (r *AllocRunner) Run() {
 			r.setStatus(structs.AllocClientStatusFailed, fmt.Sprintf("failed to build task dirs for '%s'", alloc.TaskGroup))
 			r.ctxLock.Unlock()
 			return
+		}
+		if previousAllocDir != nil {
+			if err := allocDir.Move(previousAllocDir, tg.Tasks); err != nil {
+				r.logger.Printf("WARN client: failed to move data from previous alloc: %v", err)
+				r.setStatus(structs.AllocClientStatusFailed, fmt.Sprintf("failured to move data: %v", err))
+				r.ctxLock.Unlock()
+				return
+			}
 		}
 		r.ctx = driver.NewExecContext(allocDir, r.alloc.ID)
 	}
