@@ -1,7 +1,10 @@
 package api
 
 import (
+	"archive/tar"
 	"fmt"
+	"io"
+	"os"
 	"sort"
 	"time"
 
@@ -61,6 +64,38 @@ func (a *Allocations) Stats(alloc *Allocation, q *QueryOptions) (*AllocResourceU
 	var resp AllocResourceUsage
 	_, err = client.query("/v1/client/allocation/"+alloc.ID+"/stats", &resp, nil)
 	return &resp, err
+}
+
+func (a *Allocations) AllocDirFromSnapshot(alloc *Allocation, path string, q *QueryOptions) error {
+	nodeInfo, _, err := a.client.Nodes().Info(alloc.NodeID, nil)
+	if err != nil {
+		return fmt.Errorf("error getting node info: %v", err)
+	}
+
+	config := DefaultConfig()
+	config.Address = nodeInfo.HTTPAddr
+
+	c, err := NewClient(config)
+	if err != nil {
+		return err
+	}
+	url := fmt.Sprintf("http://%v/v1/client/allocation/%v/tar")
+	r, err := c.rawQuery(url, nil)
+	if err != nil {
+		return err
+	}
+	writer, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+
+	archive := tar.NewReader(r)
+	if _, err := io.Copy(writer, archive); err != nil {
+		return err
+	}
+
+	writer.Close()
+	return nil
 }
 
 // Allocation is used for serialization of allocations.
