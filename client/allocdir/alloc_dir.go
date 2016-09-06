@@ -1,6 +1,7 @@
 package allocdir
 
 import (
+	"archive/tar"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -123,6 +124,7 @@ type AllocDirFS interface {
 	BlockUntilExists(path string, t *tomb.Tomb) chan error
 	ChangeEvents(path string, curOffset int64, t *tomb.Tomb) (*watch.FileChanges, error)
 	WalkDataDirs(walkFn WalkFn) error
+	TarDataDirs(writer io.Writer) error
 	Rel(absPath string) (string, error)
 }
 
@@ -447,6 +449,48 @@ func (d *AllocDir) WalkDataDirs(walkFn WalkFn) error {
 		}
 	}
 	return merr.ErrorOrNil()
+}
+
+func (d *AllocDir) TarDataDirs(w io.Writer) error {
+	allocDataDir := filepath.Join(d.SharedDir, "data")
+	rootPaths := []string{allocDataDir}
+	for _, path := range d.TaskDirs {
+		taskLocaPath := filepath.Join(path, "local")
+		rootPaths = append(rootPaths, taskLocaPath)
+	}
+
+	tw := tar.NewWriter(w)
+	walkFn := func(path string, fileInfo os.FileInfo, err error) error {
+		if fileInfo.IsDir() {
+			return nil
+		}
+		relPath, err := d.Rel(path)
+		if err != nil {
+			return err
+		}
+		tw.WriteHeader(&tar.Header{
+			Name: relPath,
+			Mode: 0600,
+			Size: fileInfo.Size(),
+		})
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(tw, file); err != nil {
+			return err
+		}
+		if err := file.Close(); err != nil {
+			return err
+		}
+		return nil
+	}
+	for _, path := range rootPaths {
+		if err := filepath.Walk(path, walkFn); err != nil {
+			return nil
+		}
+	}
+	return tw.Close()
 }
 
 // Stat returns information about the file at a path relative to the alloc dir

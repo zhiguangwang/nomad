@@ -111,6 +111,8 @@ func (s *HTTPServer) ClientAllocRequest(resp http.ResponseWriter, req *http.Requ
 		return s.allocStats(allocID, resp, req)
 	case "snapshot":
 		return s.allocSnapshot(allocID, resp, req)
+	case "tar":
+		return s.allocSnapshotTar(allocID, resp, req)
 	}
 
 	return nil, CodedError(404, resourceNotFoundErr)
@@ -185,6 +187,17 @@ func (s *HTTPServer) allocSnapshot(allocID string, resp http.ResponseWriter, req
 				}
 			}
 		}
+	}
+	return nil, nil
+}
+
+func (s *HTTPServer) allocSnapshotTar(allocID string, resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+	allocFS, err := s.agent.client.GetAllocFS(allocID)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't retrieve allocation: %v", err)
+	}
+	if err := allocFS.TarDataDirs(resp); err != nil {
+		return nil, fmt.Errorf("error creating tar: %v", err)
 	}
 	return nil, nil
 }
