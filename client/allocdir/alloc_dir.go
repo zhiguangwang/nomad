@@ -198,8 +198,10 @@ func (d *AllocDir) Move(other *AllocDir, tasks []*structs.Task) error {
 	// Move the data directory
 	otherDataDir := filepath.Join(other.SharedDir, "data")
 	dataDir := filepath.Join(d.SharedDir, "data")
-	if err := os.Rename(otherDataDir, dataDir); err != nil {
-		return fmt.Errorf("error moving data dir: %v", err)
+	if fileInfo, err := os.Stat(otherDataDir); fileInfo != nil && err == nil {
+		if err := os.Rename(otherDataDir, dataDir); err != nil {
+			return fmt.Errorf("error moving data dir: %v", err)
+		}
 	}
 
 	// Move the task directories
@@ -207,9 +209,11 @@ func (d *AllocDir) Move(other *AllocDir, tasks []*structs.Task) error {
 		taskDir := filepath.Join(other.AllocDir, task.Name)
 		otherTaskLocal := filepath.Join(taskDir, TaskLocal)
 
-		if taskDir, ok := d.TaskDirs[task.Name]; ok {
-			if err := os.Rename(otherTaskLocal, filepath.Join(taskDir, TaskLocal)); err != nil {
-				return fmt.Errorf("error moving task local dir: %v", err)
+		if fileInfo, err := os.Stat(otherTaskLocal); fileInfo != nil && err == nil {
+			if taskDir, ok := d.TaskDirs[task.Name]; ok {
+				if err := os.Rename(otherTaskLocal, filepath.Join(taskDir, TaskLocal)); err != nil {
+					return fmt.Errorf("error moving task local dir: %v", err)
+				}
 			}
 		}
 	}
@@ -461,18 +465,19 @@ func (d *AllocDir) TarDataDirs(w io.Writer) error {
 
 	tw := tar.NewWriter(w)
 	walkFn := func(path string, fileInfo os.FileInfo, err error) error {
-		if fileInfo.IsDir() {
-			return nil
-		}
 		relPath, err := d.Rel(path)
 		if err != nil {
 			return err
 		}
-		tw.WriteHeader(&tar.Header{
+		if fileInfo.IsDir() {
+			return nil
+		}
+		hdr := &tar.Header{
 			Name: relPath,
-			Mode: 0600,
+			Mode: int64(fileInfo.Mode()),
 			Size: fileInfo.Size(),
-		})
+		}
+		tw.WriteHeader(hdr)
 		file, err := os.Open(path)
 		if err != nil {
 			return err

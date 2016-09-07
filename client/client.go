@@ -441,6 +441,9 @@ func (c *Client) GetAllocFS(allocID string) (allocdir.AllocDirFS, error) {
 	if !ok {
 		return nil, fmt.Errorf("alloc not found")
 	}
+	if ar.ctx == nil {
+		return nil, fmt.Errorf("alloc failed")
+	}
 	return ar.ctx.AllocDir, nil
 }
 
@@ -998,7 +1001,8 @@ func (c *Client) allocSync() {
 			// terminal state then start the blocked allocation
 			c.blockedAllocsLock.Lock()
 			if blockedAlloc, ok := c.blockedAllocations[alloc.ID]; ok && alloc.Terminated() {
-				if err := c.addAlloc(blockedAlloc); err != nil {
+				allocDir := c.getAllocRunners()[alloc.ID].ctx.AllocDir
+				if err := c.addAlloc(blockedAlloc, allocDir); err != nil {
 					c.logger.Printf("[ERR] client: failed to add alloc which was previously blocked %q: %v",
 						blockedAlloc.ID, err)
 				}
@@ -1250,7 +1254,14 @@ func (c *Client) runAllocs(update *allocUpdates) {
 			continue
 		}
 
-		if err := c.addAlloc(add); err != nil {
+		var allocDir *allocdir.AllocDir
+		if add.PreviousAllocation != "" {
+			if ar, ok := c.getAllocRunners()[add.PreviousAllocation]; ok && ar != nil {
+				allocDir = ar.ctx.AllocDir
+			}
+		}
+
+		if err := c.addAlloc(add, allocDir); err != nil {
 			c.logger.Printf("[ERR] client: failed to add alloc '%s': %v",
 				add.ID, err)
 		}
@@ -1303,7 +1314,7 @@ func (c *Client) waitForRemoteAlloc(allocID string) {
 		if err == nil && resp.Alloc == nil {
 			c.blockedAllocsLock.Lock()
 			if blockedAlloc, ok := c.blockedAllocations[allocID]; ok {
-				if err := c.addAlloc(blockedAlloc); err != nil {
+				if err := c.addAlloc(blockedAlloc, nil); err != nil {
 					c.logger.Printf("[ERR] client: failed to add alloc which was previously blocked %q: %v",
 						blockedAlloc.ID, err)
 				}
@@ -1315,6 +1326,7 @@ func (c *Client) waitForRemoteAlloc(allocID string) {
 		if resp.Alloc.Terminated() {
 			// TODO Unblock the alloc
 			config := nomadapi.DefaultConfig()
+			config.Address = fmt.Sprintf("http://%v", c.config.Node.HTTPAddr)
 			client, err := nomadapi.NewClient(config)
 			if err != nil {
 				c.logger.Printf("[ERR] client: error creating nomad api: %v", err)
@@ -1327,15 +1339,19 @@ func (c *Client) waitForRemoteAlloc(allocID string) {
 			if err := client.Allocations().AllocDirFromSnapshot(&a, target, nil); err != nil {
 				c.logger.Printf("[ERR] client: error restoring from alloc snapshot: %v", err)
 			}
+
+			// Create an allocDir
+			allocDir := allocdir.NewAllocDir(target, 5000000)
 			c.blockedAllocsLock.Lock()
 			if blockedAlloc, ok := c.blockedAllocations[allocID]; ok {
-				if err := c.addAlloc(blockedAlloc); err != nil {
+				if err := c.addAlloc(blockedAlloc, allocDir); err != nil {
 					c.logger.Printf("[ERR] client: failed to add alloc which was previously blocked %q: %v",
 						blockedAlloc.ID, err)
 				}
 				delete(c.blockedAllocations, blockedAlloc.PreviousAllocation)
 			}
 			c.blockedAllocsLock.Unlock()
+			return
 		}
 	}
 }
@@ -1371,16 +1387,12 @@ func (c *Client) updateAlloc(exist, update *structs.Allocation) error {
 }
 
 // addAlloc is invoked when we should add an allocation
-func (c *Client) addAlloc(alloc *structs.Allocation) error {
+func (c *Client) addAlloc(alloc *structs.Allocation, prevAllocDir *allocdir.AllocDir) error {
 	c.configLock.RLock()
 	ar := NewAllocRunner(c.logger, c.configCopy, c.updateAllocStatus, alloc)
 	c.configLock.RUnlock()
 
-	var allocDir *allocdir.AllocDir
-	if ar, ok := c.getAllocRunners()[alloc.PreviousAllocation]; ok {
-		allocDir = ar.ctx.AllocDir
-	}
-	go ar.Run(allocDir)
+	go ar.Run(prevAllocDir)
 
 	// Store the alloc runner.
 	c.allocLock.Lock()

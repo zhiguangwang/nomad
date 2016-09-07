@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -72,29 +73,41 @@ func (a *Allocations) AllocDirFromSnapshot(alloc *Allocation, path string, q *Qu
 		return fmt.Errorf("error getting node info: %v", err)
 	}
 
-	config := DefaultConfig()
-	config.Address = nodeInfo.HTTPAddr
+	a.client.config.Address = fmt.Sprintf("http://%v", nodeInfo.HTTPAddr)
 
-	c, err := NewClient(config)
+	url := fmt.Sprintf("/v1/client/allocation/%v/tar", alloc.ID)
+	r, err := a.client.rawQuery(url, nil)
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("http://%v/v1/client/allocation/%v/tar")
-	r, err := c.rawQuery(url, nil)
-	if err != nil {
-		return err
-	}
-	writer, err := os.Create(path)
-	if err != nil {
+	if err := os.MkdirAll(path, 600); err != nil {
 		return err
 	}
 
 	archive := tar.NewReader(r)
-	if _, err := io.Copy(writer, archive); err != nil {
-		return err
-	}
+	for {
+		hdr, err := archive.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("error 1 %v", err)
+		}
+		fileName := filepath.Join(path, hdr.Name)
 
-	writer.Close()
+		// Create the dir
+		if err := os.MkdirAll(filepath.Dir(fileName), os.FileMode(hdr.Mode)); err != nil {
+			return fmt.Errorf("unable to create dir: %v", err)
+		}
+
+		// Create file
+		writer, err := os.Create(fileName)
+		if err != nil {
+			return fmt.Errorf("unable to create file %v", err)
+		}
+		io.Copy(writer, archive)
+		writer.Close()
+	}
 	return nil
 }
 
