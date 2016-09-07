@@ -17,6 +17,7 @@ import (
 	consulapi "github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/lib"
 	"github.com/hashicorp/go-multierror"
+	nomadapi "github.com/hashicorp/nomad/api"
 	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/client/config"
 	"github.com/hashicorp/nomad/client/driver"
@@ -1239,15 +1240,103 @@ func (c *Client) runAllocs(update *allocUpdates) {
 			continue
 		}
 
+		// See if the allocation has a chained allocation on another node
+		if add.PreviousAllocation != "" {
+			c.logger.Printf("[DEBUG] client: added alloc %q to blocked queue", add.ID)
+			c.blockedAllocsLock.Lock()
+			c.blockedAllocations[add.PreviousAllocation] = add
+			c.blockedAllocsLock.Unlock()
+			go c.waitForRemoteAlloc(add.PreviousAllocation)
+			continue
+		}
+
 		if err := c.addAlloc(add); err != nil {
 			c.logger.Printf("[ERR] client: failed to add alloc '%s': %v",
 				add.ID, err)
 		}
+
 	}
 
 	// Persist our state
 	if err := c.saveState(); err != nil {
 		c.logger.Printf("[ERR] client: failed to save state: %v", err)
+	}
+}
+
+func (c *Client) waitForRemoteAlloc(allocID string) {
+	req := structs.AllocSpecificRequest{
+		AllocID: allocID,
+		QueryOptions: structs.QueryOptions{
+			Region:     c.Region(),
+			AllowStale: true,
+		},
+	}
+
+	for {
+		c.logger.Printf("DIPTANU MAKING BLOCKING QUERY FOR ALLOC %#v", allocID)
+		resp := structs.SingleAllocResponse{}
+		err := c.RPC("Alloc.GetAlloc", &req, &resp)
+		if err != nil {
+			c.logger.Printf("[ERR] client: failed to query for allocation %q: %v", allocID, err)
+			retry := c.retryIntv(getAllocRetryIntv)
+			select {
+			case <-time.After(retry):
+				continue
+			case <-c.shutdownCh:
+				return
+			}
+		}
+
+		// Check for shutdown
+		select {
+		case <-c.shutdownCh:
+			return
+		default:
+		}
+
+		// Update the query index.
+		if resp.Index > req.MinQueryIndex {
+			req.MinQueryIndex = resp.Index
+		}
+
+		// If the alloc is not present on the server then un-block it
+		if err == nil && resp.Alloc == nil {
+			c.blockedAllocsLock.Lock()
+			if blockedAlloc, ok := c.blockedAllocations[allocID]; ok {
+				if err := c.addAlloc(blockedAlloc); err != nil {
+					c.logger.Printf("[ERR] client: failed to add alloc which was previously blocked %q: %v",
+						blockedAlloc.ID, err)
+				}
+				delete(c.blockedAllocations, blockedAlloc.PreviousAllocation)
+			}
+			c.blockedAllocsLock.Unlock()
+		}
+
+		if resp.Alloc.Terminated() {
+			// TODO Unblock the alloc
+			config := nomadapi.DefaultConfig()
+			client, err := nomadapi.NewClient(config)
+			if err != nil {
+				c.logger.Printf("[ERR] client: error creating nomad api: %v", err)
+			}
+			target := filepath.Join(c.config.AllocDir, allocID)
+			a := nomadapi.Allocation{
+				ID:     resp.Alloc.ID,
+				NodeID: resp.Alloc.NodeID,
+			}
+			if err := client.Allocations().AllocDirFromSnapshot(&a, target, nil); err != nil {
+				c.logger.Printf("[ERR] client: error restoring from alloc snapshot: %v", err)
+			}
+			c.blockedAllocsLock.Lock()
+			if blockedAlloc, ok := c.blockedAllocations[allocID]; ok {
+				if err := c.addAlloc(blockedAlloc); err != nil {
+					c.logger.Printf("[ERR] client: failed to add alloc which was previously blocked %q: %v",
+						blockedAlloc.ID, err)
+				}
+				delete(c.blockedAllocations, blockedAlloc.PreviousAllocation)
+			}
+			c.blockedAllocsLock.Unlock()
+		}
 	}
 }
 
