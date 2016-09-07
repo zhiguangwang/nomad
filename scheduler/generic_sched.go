@@ -244,6 +244,7 @@ func (s *GenericScheduler) process() (bool, error) {
 	}
 
 	// Submit the plan and store the results.
+	s.logger.Printf("DIPTANU PLAN %#v", s.plan)
 	result, newState, err := s.planner.SubmitPlan(s.plan)
 	s.planResult = result
 	if err != nil {
@@ -512,7 +513,12 @@ func (s *GenericScheduler) findPreferredNode(allocTuple *allocTuple) (node *stru
 			return
 		}
 		if taskGroup.LocalDisk.Sticky == true {
-			node, err = s.state.NodeByID(allocTuple.Alloc.NodeID)
+			var preferredNode *structs.Node
+			preferredNode, err = s.state.NodeByID(allocTuple.Alloc.NodeID)
+			if preferredNode.Ready() {
+				node = preferredNode
+				return
+			}
 		}
 	}
 	return
