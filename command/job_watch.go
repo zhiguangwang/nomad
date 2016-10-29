@@ -2,6 +2,7 @@ package command
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -67,7 +68,14 @@ func (c *JobWatchCommand) Run(args []string) int {
 		return 1
 	}
 
+	args = flags.Args()
+	if len(args) > 1 {
+		c.Ui.Error(c.Help())
+		return 1
+	}
+
 	c.config = &JobWatchConfig{
+		JobID:     args[0],
 		ExitAfter: exitAfter,
 	}
 
@@ -115,7 +123,7 @@ func (c *JobWatchCommand) run(job *api.Job) int {
 		ui.Close()
 
 		if c.err != nil {
-			c.Ui.Error(fmt.Sprintf("Exiting on error: %v", err))
+			c.Ui.Error(fmt.Sprintf("Exiting on error: %v", c.err))
 		} else if c.jobStopped {
 			c.Ui.Output(fmt.Sprintf("Job %q was stopped", job.ID))
 		}
@@ -123,18 +131,23 @@ func (c *JobWatchCommand) run(job *api.Job) int {
 
 	// Start the watchers
 	go c.pollJob(job)
+	go c.pollJobSummary(job)
 
 	// Add the exit gauge
 	if c.config.ExitAfter != 0 {
 		c.addExitAfterGauge()
 	}
 
-	// Get the job status
+	// Get the job status and summary
 	status := NewJobStatusGrid(job)
+	summary := NewJobSummarysGrid()
 
 	// build layout
 	ui.Body.AddRows(
-		ui.NewRow(ui.NewCol(6, 0, status)),
+		ui.NewRow(
+			ui.NewCol(3, 0, status),
+			ui.NewCol(9, 0, summary),
+		),
 	)
 
 	// calculate layout
@@ -142,7 +155,7 @@ func (c *JobWatchCommand) run(job *api.Job) int {
 
 	ui.Render(ui.Body)
 
-	ui.Handle("/sys/kbd", func(ui.Event) {
+	ui.Handle("/sys/kbd/q", func(ui.Event) {
 		ui.StopLoop()
 	})
 
@@ -224,13 +237,35 @@ func (c *JobWatchCommand) pollJob(job *api.Job) {
 			if strings.Contains(err.Error(), "job not found") {
 				ui.SendCustomEvt("/job/stopped", fmt.Errorf("Failed to poll job: %v", err))
 			} else {
-				ui.SendCustomEvt("/watch/job", fmt.Errorf("Failed to poll job: %v", err))
+				ui.SendCustomEvt("/error", fmt.Errorf("Failed to poll job: %v", err))
 			}
 			return
 		}
 
 		if updated != nil {
-			ui.SendCustomEvt("/watch/job", updated)
+			ui.SendCustomEvt("/watch/job/info", updated)
+			q.WaitIndex = updated.ModifyIndex
+		}
+	}
+}
+
+func (c *JobWatchCommand) pollJobSummary(job *api.Job) {
+	q := &api.QueryOptions{
+		WaitIndex: 0,
+	}
+	for {
+		updated, _, err := c.client.Jobs().Summary(job.ID, q)
+		if err != nil {
+			if strings.Contains(err.Error(), "job not found") {
+				ui.SendCustomEvt("/job/stopped", fmt.Errorf("Failed to poll job: %v", err))
+			} else {
+				ui.SendCustomEvt("/error", fmt.Errorf("Failed to poll job summary: %v", err))
+			}
+			return
+		}
+
+		if updated != nil {
+			ui.SendCustomEvt("/watch/job/summary", updated)
 			q.WaitIndex = updated.ModifyIndex
 		}
 	}
@@ -246,13 +281,12 @@ func NewJobStatusGrid(job *api.Job) *JobStatusGrid {
 		job: job,
 		Par: ui.NewPar(""),
 	}
-	js.Height = 8
 	js.Border = true
 	js.BorderLabel = "Job Info"
 	js.render()
 
 	// Handle updates
-	js.Handle("/watch/job", func(e ui.Event) {
+	js.Handle("/watch/job/info", func(e ui.Event) {
 		job, ok := e.Data.(*api.Job)
 		if !ok {
 			panic(e.Data)
@@ -277,7 +311,7 @@ func (js *JobStatusGrid) render() {
 	// Check if it is periodic
 	sJob, err := convertApiJob(js.job)
 	if err != nil {
-		ui.SendCustomEvt("/watch/job", fmt.Errorf("Failed to poll job: %v", err))
+		ui.SendCustomEvt("/error", fmt.Errorf("Failed to convert api job: %v", err))
 		return
 	}
 	periodic := sJob.IsPeriodic()
@@ -301,5 +335,68 @@ func (js *JobStatusGrid) render() {
 				formatTime(next), formatTimeDifference(now, next, time.Second))))
 	}
 
+	js.Height = len(basic) + 2
 	js.Text = formatKV(basic)
+}
+
+type JobSummaryGrid struct {
+	*ui.Par
+	summary *api.JobSummary
+}
+
+func NewJobSummarysGrid() *JobSummaryGrid {
+	js := &JobSummaryGrid{
+		Par: ui.NewPar(""),
+	}
+	js.Height = 8
+	js.Border = true
+	js.BorderLabel = "Job Summary"
+	js.render()
+
+	// Handle updates
+	js.Handle("/watch/job/summary", func(e ui.Event) {
+		summary, ok := e.Data.(*api.JobSummary)
+		if !ok {
+			panic(e.Data)
+		}
+
+		js.summary = summary
+		js.render()
+		ui.Body.Align()
+		ui.Clear()
+		ui.Render(ui.Body)
+	})
+
+	return js
+}
+
+func (js *JobSummaryGrid) Update(summary *api.JobSummary) {
+	js.summary = summary
+	js.render()
+}
+
+func (js *JobSummaryGrid) render() {
+	if js.summary == nil {
+		js.Text = ""
+		return
+	}
+
+	summaries := make([]string, len(js.summary.Summary)+1)
+	summaries[0] = "Task Group|Queued|Starting|Running|Failed|Complete|Lost"
+	taskGroups := make([]string, 0, len(js.summary.Summary))
+	for taskGroup := range js.summary.Summary {
+		taskGroups = append(taskGroups, taskGroup)
+	}
+	sort.Strings(taskGroups)
+	for idx, taskGroup := range taskGroups {
+		tgs := js.summary.Summary[taskGroup]
+		summaries[idx+1] = fmt.Sprintf("%s|%d|%d|%d|%d|%d|%d",
+			taskGroup, tgs.Queued, tgs.Starting,
+			tgs.Running, tgs.Failed,
+			tgs.Complete, tgs.Lost,
+		)
+	}
+
+	js.Height = len(summaries) + 2
+	js.Text = formatList(summaries)
 }
