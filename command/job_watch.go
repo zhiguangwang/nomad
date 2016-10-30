@@ -10,6 +10,10 @@ import (
 	"github.com/hashicorp/nomad/api"
 )
 
+const (
+	numRecentEvals = 5
+)
+
 type JobWatchCommand struct {
 	Meta
 	config *JobWatchConfig
@@ -132,6 +136,7 @@ func (c *JobWatchCommand) run(job *api.Job) int {
 	// Start the watchers
 	go c.pollJob(job)
 	go c.pollJobSummary(job)
+	go c.pollEvals(job)
 
 	// Add the exit gauge
 	if c.config.ExitAfter != 0 {
@@ -142,11 +147,20 @@ func (c *JobWatchCommand) run(job *api.Job) int {
 	status := NewJobStatusGrid(job)
 	summary := NewJobSummarysGrid()
 
+	// Watch for scheduling events
+	// TODO verbose mode
+	latestEvals := NewLatestEvalsGrid(numRecentEvals, 8)
+	placementFailures := NewLatestEvalFailureGrid(8)
+
 	// build layout
 	ui.Body.AddRows(
 		ui.NewRow(
 			ui.NewCol(3, 0, status),
 			ui.NewCol(9, 0, summary),
+		),
+		ui.NewRow(
+			ui.NewCol(6, 0, latestEvals),
+			ui.NewCol(6, 0, placementFailures),
 		),
 	)
 
@@ -195,7 +209,7 @@ func (c *JobWatchCommand) run(job *api.Job) int {
 
 func (c *JobWatchCommand) addExitAfterGauge() {
 	exitGauge := ui.NewGauge()
-	exitGauge.BorderLabel = "Automatically exiting - Press \"c\" to cancel"
+	exitGauge.BorderLabel = " Automatically exiting - Press \"c\" to cancel "
 	exitGauge.Height = 3
 	exitGauge.Border = true
 	exitGauge.Percent = 100
@@ -271,6 +285,28 @@ func (c *JobWatchCommand) pollJobSummary(job *api.Job) {
 	}
 }
 
+func (c *JobWatchCommand) pollEvals(job *api.Job) {
+	q := &api.QueryOptions{
+		WaitIndex: 0,
+	}
+	for {
+		updated, meta, err := c.client.Jobs().Evaluations(job.ID, q)
+		if err != nil {
+			if strings.Contains(err.Error(), "job not found") {
+				ui.SendCustomEvt("/job/stopped", fmt.Errorf("Failed to poll job: %v", err))
+			} else {
+				ui.SendCustomEvt("/error", fmt.Errorf("Failed to poll job summary: %v", err))
+			}
+			return
+		}
+
+		if updated != nil {
+			ui.SendCustomEvt("/watch/job/evals", updated)
+			q.WaitIndex = meta.LastIndex
+		}
+	}
+}
+
 type JobStatusGrid struct {
 	*ui.Par
 	job *api.Job
@@ -282,7 +318,7 @@ func NewJobStatusGrid(job *api.Job) *JobStatusGrid {
 		Par: ui.NewPar(""),
 	}
 	js.Border = true
-	js.BorderLabel = "Job Info"
+	js.BorderLabel = " Job Info "
 	js.render()
 
 	// Handle updates
@@ -300,11 +336,6 @@ func NewJobStatusGrid(job *api.Job) *JobStatusGrid {
 	})
 
 	return js
-}
-
-func (js *JobStatusGrid) Update(job *api.Job) {
-	js.job = job
-	js.render()
 }
 
 func (js *JobStatusGrid) render() {
@@ -350,7 +381,7 @@ func NewJobSummarysGrid() *JobSummaryGrid {
 	}
 	js.Height = 8
 	js.Border = true
-	js.BorderLabel = "Job Summary"
+	js.BorderLabel = " Job Summary "
 	js.render()
 
 	// Handle updates
@@ -368,11 +399,6 @@ func NewJobSummarysGrid() *JobSummaryGrid {
 	})
 
 	return js
-}
-
-func (js *JobSummaryGrid) Update(summary *api.JobSummary) {
-	js.summary = summary
-	js.render()
 }
 
 func (js *JobSummaryGrid) render() {
@@ -399,4 +425,171 @@ func (js *JobSummaryGrid) render() {
 
 	js.Height = len(summaries) + 2
 	js.Text = formatList(summaries)
+}
+
+type LatestEvalsGrid struct {
+	*ui.Par
+	limit  int
+	length int
+	evals  []*api.Evaluation
+}
+
+func NewLatestEvalsGrid(limit, length int) *LatestEvalsGrid {
+	l := &LatestEvalsGrid{
+		Par:    ui.NewPar(""),
+		limit:  limit,
+		length: length,
+	}
+	l.Height = 8
+	l.Border = true
+	l.BorderLabel = " Recent Scheduling Events "
+	l.render()
+
+	// Handle updates
+	l.Handle("/watch/job/evals", func(e ui.Event) {
+		evals, ok := e.Data.([]*api.Evaluation)
+		if !ok {
+			panic(e.Data)
+		}
+
+		l.evals = evals
+		l.render()
+		ui.Body.Align()
+		ui.Clear()
+		ui.Render(ui.Body)
+	})
+
+	return l
+}
+
+func (l *LatestEvalsGrid) render() {
+	if l.evals == nil {
+		l.Text = ""
+		return
+	}
+
+	numEvals := len(l.evals)
+	if numEvals > l.limit {
+		numEvals = l.limit
+	}
+
+	// Format the evals
+	evals := make([]string, numEvals+1)
+	evals[0] = "ID|Triggered By|Status|Failures"
+	for i, eval := range l.evals[:numEvals] {
+		failures, _ := evalFailureStatus(eval)
+		evals[i+1] = fmt.Sprintf("%s|%s|%s|%s",
+			limit(eval.ID, l.length),
+			eval.TriggeredBy,
+			eval.Status,
+			failures,
+		)
+	}
+
+	l.Height = len(evals) + 2
+	l.Text = formatList(evals)
+}
+
+type LatestEvalFailureGrid struct {
+	*ui.Par
+	length int
+	evals  []*api.Evaluation
+}
+
+func NewLatestEvalFailureGrid(length int) *LatestEvalFailureGrid {
+	l := &LatestEvalFailureGrid{
+		Par:    ui.NewPar(""),
+		length: length,
+	}
+	l.Height = 8
+	l.Border = true
+	l.BorderLabel = " Placement Failures "
+	l.render()
+
+	// Handle updates
+	l.Handle("/watch/job/evals", func(e ui.Event) {
+		evals, ok := e.Data.([]*api.Evaluation)
+		if !ok {
+			panic(e.Data)
+		}
+
+		l.evals = evals
+		l.render()
+		ui.Body.Align()
+		ui.Clear()
+		ui.Render(ui.Body)
+	})
+
+	return l
+}
+
+func (l *LatestEvalFailureGrid) render() {
+	if l.evals == nil {
+		l.Text = ""
+		return
+	}
+
+	// Determine latest evaluation with failures whose follow up hasn't
+	// completed
+	failedEval := latestFailedEval(l.evals)
+	if failedEval != nil {
+		text := ""
+		sorted := sortedTaskGroupFromMetrics(failedEval.FailedTGAllocs)
+		for i, tg := range sorted {
+			if i >= maxFailedTGs {
+				break
+			}
+
+			text += fmt.Sprintf("Task Group %q:\n", tg)
+			metrics := failedEval.FailedTGAllocs[tg]
+			text += formatAllocMetrics(metrics, false, "  ") + "\n"
+			if i != len(sorted)-1 {
+				text += "\n"
+			}
+		}
+
+		if len(sorted) > maxFailedTGs {
+			text += fmt.Sprintf("\nPlacement failures truncated. To see remainder run:\nnomad eval-status %s\n", failedEval.ID)
+		}
+
+		l.Height = 2 + len(strings.Split(text, "\n"))
+		l.Text = strings.TrimSpace(text)
+	} else {
+		l.Height = 3
+		l.Text = "No Placement Failures"
+	}
+}
+
+// TODO back port
+func latestFailedEval(evals []*api.Evaluation) *api.Evaluation {
+	// Find the latest good eval and whether there is a blocked eval
+	var latestGoodEval uint64
+	blocked := false
+	for _, eval := range evals {
+		if eval.Status == "complete" && len(eval.FailedTGAllocs) == 0 {
+			if eval.CreateIndex > latestGoodEval {
+				latestGoodEval = eval.CreateIndex
+			}
+		}
+
+		if eval.Status == "blocked" {
+			blocked = true
+		}
+	}
+
+	// Find the latest failed eval
+	var latestFailedEval *api.Evaluation
+	for _, eval := range evals {
+		if eval.Status == "complete" && len(eval.FailedTGAllocs) != 0 {
+			if latestFailedEval == nil || eval.CreateIndex > latestFailedEval.CreateIndex {
+				latestFailedEval = eval
+			}
+		}
+	}
+
+	if latestFailedEval == nil || latestFailedEval.CreateIndex < latestGoodEval || !blocked {
+		return nil
+	}
+
+	return latestFailedEval
 }
