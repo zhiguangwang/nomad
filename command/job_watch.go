@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	numRecentEvals = 5
+	numRecentEvals  = 5
+	numRecentAllocs = 5
 )
 
 type JobWatchCommand struct {
@@ -137,6 +138,7 @@ func (c *JobWatchCommand) run(job *api.Job) int {
 	go c.pollJob(job)
 	go c.pollJobSummary(job)
 	go c.pollEvals(job)
+	go c.pollAllocations(job)
 
 	// Add the exit gauge
 	if c.config.ExitAfter != 0 {
@@ -152,6 +154,9 @@ func (c *JobWatchCommand) run(job *api.Job) int {
 	latestEvals := NewLatestEvalsGrid(numRecentEvals, 8)
 	placementFailures := NewLatestEvalFailureGrid(8)
 
+	// Watch for allocation updates
+	latestAllocs := NewAllocUpdatesGrid(numRecentAllocs, 8)
+
 	// build layout
 	ui.Body.AddRows(
 		ui.NewRow(
@@ -161,6 +166,9 @@ func (c *JobWatchCommand) run(job *api.Job) int {
 		ui.NewRow(
 			ui.NewCol(6, 0, latestEvals),
 			ui.NewCol(6, 0, placementFailures),
+		),
+		ui.NewRow(
+			ui.NewCol(6, 0, latestAllocs),
 		),
 	)
 
@@ -302,6 +310,28 @@ func (c *JobWatchCommand) pollEvals(job *api.Job) {
 
 		if updated != nil {
 			ui.SendCustomEvt("/watch/job/evals", updated)
+			q.WaitIndex = meta.LastIndex
+		}
+	}
+}
+
+func (c *JobWatchCommand) pollAllocations(job *api.Job) {
+	q := &api.QueryOptions{
+		WaitIndex: 0,
+	}
+	for {
+		updated, meta, err := c.client.Jobs().Allocations(job.ID, q)
+		if err != nil {
+			if strings.Contains(err.Error(), "job not found") {
+				ui.SendCustomEvt("/job/stopped", fmt.Errorf("Failed to poll job: %v", err))
+			} else {
+				ui.SendCustomEvt("/error", fmt.Errorf("Failed to poll job allocations: %v", err))
+			}
+			return
+		}
+
+		if updated != nil {
+			ui.SendCustomEvt("/watch/job/allocs", updated)
 			q.WaitIndex = meta.LastIndex
 		}
 	}
@@ -592,4 +622,92 @@ func latestFailedEval(evals []*api.Evaluation) *api.Evaluation {
 	}
 
 	return latestFailedEval
+}
+
+type AllocUpdatesGrid struct {
+	*ui.Par
+	allocs []*api.AllocationListStub
+	limit  int
+	length int
+}
+
+func NewAllocUpdatesGrid(limit, length int) *AllocUpdatesGrid {
+	au := &AllocUpdatesGrid{
+		Par:    ui.NewPar(""),
+		limit:  limit,
+		length: length,
+	}
+	au.Height = 8
+	au.Border = true
+	au.BorderLabel = " Recent Allocation Changes "
+	au.render()
+
+	// Handle updates
+	au.Handle("/watch/job/allocs", func(e ui.Event) {
+		allocs, ok := e.Data.([]*api.AllocationListStub)
+		if !ok {
+			panic(e.Data)
+		}
+
+		au.allocs = allocs
+		au.render()
+		ui.Body.Align()
+		ui.Clear()
+		ui.Render(ui.Body)
+	})
+
+	return au
+}
+
+func (au *AllocUpdatesGrid) render() {
+	if au.allocs == nil {
+		au.Text = ""
+		return
+	}
+
+	numAllocs := len(au.allocs)
+	if numAllocs > au.limit {
+		numAllocs = au.limit
+	}
+
+	sortAllocListStubByModifyIndex(au.allocs)
+
+	allocs := make([]string, numAllocs+1)
+	allocs[0] = "ID|Node ID|Task Group|Desired|Status|Created At"
+	for idx, alloc := range au.allocs[:numAllocs] {
+		created := formatTime(time.Unix(0, alloc.CreateTime))
+		allocs[idx+1] = fmt.Sprintf("%s|%s|%s|%s|%s|%s",
+			limit(alloc.ID, au.length),
+			limit(alloc.NodeID, au.length),
+			alloc.TaskGroup,
+			alloc.DesiredStatus,
+			alloc.ClientStatus,
+			created,
+		)
+	}
+
+	au.Height = len(allocs) + 2
+	au.Text = formatList(allocs)
+}
+
+type modifyIndexSorter []*api.AllocationListStub
+
+func (m modifyIndexSorter) Len() int { return len(m) }
+
+func (m modifyIndexSorter) Less(i, j int) bool {
+	a, b := m[i], m[j]
+	if a.ModifyIndex < b.ModifyIndex {
+		return false
+	} else if a.ModifyIndex == b.ModifyIndex {
+		return a.CreateIndex > b.CreateIndex
+	} else {
+		return true
+	}
+}
+
+func (m modifyIndexSorter) Swap(i, j int) { m[i], m[j] = m[j], m[i] }
+
+func sortAllocListStubByModifyIndex(allocs []*api.AllocationListStub) {
+	m := modifyIndexSorter(allocs)
+	sort.Sort(m)
 }
