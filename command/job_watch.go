@@ -178,12 +178,11 @@ func (c *JobWatcher) Run() int {
 			ui.NewCol(6, 0, placementFailures),
 		),
 		ui.NewRow(
-			ui.NewCol(6, 0, latestAllocs),
-			ui.NewCol(6, 0, latestTaskEvents),
+			ui.NewCol(12, 0, latestAllocs),
 		),
-		//ui.NewRow(
-		//ui.NewCol(12, 0, latestTaskEvents),
-		//),
+		ui.NewRow(
+			ui.NewCol(12, 0, latestTaskEvents),
+		),
 	)
 
 	// Calculate layout
