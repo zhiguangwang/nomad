@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/hashicorp/nomad/client"
 )
 
 // MemoryStats holds memory usage related stats
@@ -345,7 +343,7 @@ func (t *TaskEvent) Description() string {
 		desc = strings.Join(parts, ", ")
 	case TaskRestarting:
 		in := fmt.Sprintf("Task restarting in %v", time.Duration(t.StartDelay))
-		if t.RestartReason != "" && t.RestartReason != client.ReasonWithinPolicy {
+		if t.RestartReason != "" && t.RestartReason != "Restart within policy" {
 			desc = fmt.Sprintf("%s - %s", t.RestartReason, in)
 		} else {
 			desc = in
