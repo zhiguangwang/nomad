@@ -111,12 +111,6 @@ func (c *RunCommand) Run(args []string) int {
 		return 1
 	}
 
-	// Truncate the id unless full length is requested
-	length := shortId
-	if verbose {
-		length = fullId
-	}
-
 	// Check that we got exactly one argument
 	args = flags.Args()
 	if len(args) != 1 {
@@ -236,10 +230,15 @@ func (c *RunCommand) Run(args []string) int {
 		return 0
 	}
 
-	// Detach was not specified, so start monitoring
-	mon := newMonitor(c.Ui, client, length)
-	return mon.monitor(evalID, false)
+	w := &JobWatcher{
+		Meta: c.Meta,
+		Config: &JobWatchConfig{
+			JobID:     job.ID,
+			ExitAfter: 10,
+		},
+	}
 
+	return w.Run()
 }
 
 // parseCheckIndex parses the check-index flag and returns the index, whether it

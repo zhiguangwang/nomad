@@ -17,14 +17,6 @@ const (
 
 type JobWatchCommand struct {
 	Meta
-	config *JobWatchConfig
-	client *api.Client
-
-	// err holds an error that occured that should be displayed to the user
-	err error
-
-	// jobStopped marks a job as being stopped
-	jobStopped bool
 }
 
 type JobWatchConfig struct {
@@ -79,11 +71,32 @@ func (c *JobWatchCommand) Run(args []string) int {
 		return 1
 	}
 
-	c.config = &JobWatchConfig{
-		JobID:     args[0],
-		ExitAfter: exitAfter,
+	w := &JobWatcher{
+		Meta: c.Meta,
+		Config: &JobWatchConfig{
+			JobID:     args[0],
+			ExitAfter: exitAfter,
+		},
 	}
 
+	return w.Run()
+}
+
+type JobWatcher struct {
+	Meta
+
+	Config *JobWatchConfig
+
+	client *api.Client
+
+	// err holds an error that occured that should be displayed to the user
+	err error
+
+	// jobStopped marks a job as being stopped
+	jobStopped bool
+}
+
+func (c *JobWatcher) Run() int {
 	// Get the HTTP client
 	client, err := c.Meta.Client()
 	if err != nil {
@@ -93,7 +106,7 @@ func (c *JobWatchCommand) Run(args []string) int {
 	c.client = client
 
 	// Try querying the job
-	jobID := c.config.JobID
+	jobID := c.Config.JobID
 	jobs, _, err := c.client.Jobs().PrefixList(jobID)
 	if err != nil {
 		c.Ui.Error(fmt.Sprintf("Error querying job: %s", err))
@@ -114,12 +127,7 @@ func (c *JobWatchCommand) Run(args []string) int {
 		return 1
 	}
 
-	return c.run(job)
-}
-
-func (c *JobWatchCommand) run(job *api.Job) int {
-	err := ui.Init()
-	if err != nil {
+	if err := ui.Init(); err != nil {
 		c.Ui.Error(fmt.Sprintf("Initializing UI failed: %v", err))
 		return 1
 	}
@@ -141,7 +149,7 @@ func (c *JobWatchCommand) run(job *api.Job) int {
 	go c.pollAllocations(job)
 
 	// Add the exit gauge
-	if c.config.ExitAfter != 0 {
+	if c.Config.ExitAfter != 0 {
 		c.addExitAfterGauge()
 	}
 
@@ -215,7 +223,7 @@ func (c *JobWatchCommand) run(job *api.Job) int {
 	return 0
 }
 
-func (c *JobWatchCommand) addExitAfterGauge() {
+func (c *JobWatcher) addExitAfterGauge() {
 	exitGauge := ui.NewGauge()
 	exitGauge.BorderLabel = " Automatically exiting - Press \"c\" to cancel "
 	exitGauge.Height = 3
@@ -227,12 +235,12 @@ func (c *JobWatchCommand) addExitAfterGauge() {
 	exitGauge.Handle("/timer/1s", func(e ui.Event) {
 		t := e.Data.(ui.EvtTimer)
 		i := t.Count
-		if int(i) == c.config.ExitAfter && exitGauge.Display != false {
+		if int(i) == c.Config.ExitAfter && exitGauge.Display != false {
 			ui.StopLoop()
 			return
 		}
 
-		exitGauge.Percent = int(float64(c.config.ExitAfter-int(i)) / float64(c.config.ExitAfter) * 100)
+		exitGauge.Percent = int(float64(c.Config.ExitAfter-int(i)) / float64(c.Config.ExitAfter) * 100)
 		ui.Render(ui.Body)
 	})
 
@@ -249,7 +257,7 @@ func (c *JobWatchCommand) addExitAfterGauge() {
 	})
 }
 
-func (c *JobWatchCommand) pollJob(job *api.Job) {
+func (c *JobWatcher) pollJob(job *api.Job) {
 	q := &api.QueryOptions{
 		WaitIndex: job.ModifyIndex,
 	}
@@ -271,7 +279,7 @@ func (c *JobWatchCommand) pollJob(job *api.Job) {
 	}
 }
 
-func (c *JobWatchCommand) pollJobSummary(job *api.Job) {
+func (c *JobWatcher) pollJobSummary(job *api.Job) {
 	q := &api.QueryOptions{
 		WaitIndex: 0,
 	}
@@ -293,7 +301,7 @@ func (c *JobWatchCommand) pollJobSummary(job *api.Job) {
 	}
 }
 
-func (c *JobWatchCommand) pollEvals(job *api.Job) {
+func (c *JobWatcher) pollEvals(job *api.Job) {
 	q := &api.QueryOptions{
 		WaitIndex: 0,
 	}
@@ -315,7 +323,7 @@ func (c *JobWatchCommand) pollEvals(job *api.Job) {
 	}
 }
 
-func (c *JobWatchCommand) pollAllocations(job *api.Job) {
+func (c *JobWatcher) pollAllocations(job *api.Job) {
 	q := &api.QueryOptions{
 		WaitIndex: 0,
 	}
