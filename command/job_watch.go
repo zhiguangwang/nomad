@@ -357,6 +357,7 @@ func NewJobStatusGrid(job *api.Job) *JobStatusGrid {
 	}
 	js.Border = true
 	js.BorderLabel = " Job Info "
+	js.PaddingLeft = 1
 	js.render()
 
 	// Handle updates
@@ -420,6 +421,7 @@ func NewJobSummarysGrid() *JobSummaryGrid {
 	js.Height = 8
 	js.Border = true
 	js.BorderLabel = " Job Summary "
+	js.PaddingLeft = 1
 	js.render()
 
 	// Handle updates
@@ -481,6 +483,7 @@ func NewLatestEvalsGrid(limit, length int) *LatestEvalsGrid {
 	l.Height = 8
 	l.Border = true
 	l.BorderLabel = " Recent Scheduling Events "
+	l.PaddingLeft = 1
 	l.render()
 
 	// Handle updates
@@ -542,6 +545,7 @@ func NewLatestEvalFailureGrid(length int) *LatestEvalFailureGrid {
 	l.Height = 8
 	l.Border = true
 	l.BorderLabel = " Placement Failures "
+	l.PaddingLeft = 1
 	l.render()
 
 	// Handle updates
@@ -648,6 +652,7 @@ func NewAllocUpdatesGrid(limit, length int) *AllocUpdatesGrid {
 	au.Height = 8
 	au.Border = true
 	au.BorderLabel = " Recent Allocation Changes "
+	au.PaddingLeft = 1
 	au.render()
 
 	// Handle updates
