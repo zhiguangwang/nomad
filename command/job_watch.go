@@ -164,7 +164,7 @@ func (c *JobWatcher) Run() int {
 	placementFailures := NewLatestEvalFailureGrid(8)
 
 	// Watch for allocation updates
-	//latestAllocs := NewAllocUpdatesGrid(numRecentAllocs, 8)
+	latestAllocs := NewAllocUpdatesGrid(numRecentAllocs, 8)
 	latestTaskEvents := NewTaskEventsGrid(numRecentEvents, 8)
 
 	// Build layout
@@ -177,13 +177,13 @@ func (c *JobWatcher) Run() int {
 			ui.NewCol(6, 0, latestEvals),
 			ui.NewCol(6, 0, placementFailures),
 		),
-		//ui.NewRow(
-		//ui.NewCol(6, 0, latestAllocs),
-		//ui.NewCol(6, 0, latestTaskEvents),
-		//),
 		ui.NewRow(
-			ui.NewCol(12, 0, latestTaskEvents),
+			ui.NewCol(6, 0, latestAllocs),
+			ui.NewCol(6, 0, latestTaskEvents),
 		),
+		//ui.NewRow(
+		//ui.NewCol(12, 0, latestTaskEvents),
+		//),
 	)
 
 	// Calculate layout
