@@ -258,18 +258,12 @@
 		{
 			"checksumSHA1": "iP5slJJPRZUm0rfdII8OiATAACA=",
 			"path": "github.com/docker/docker/pkg/idtools",
-			"revision": "52debcd58ac91bf68503ce60561536911b74ff05",
-			"revisionTime": "2016-05-20T15:17:10Z"
-		},
-		{
-			"checksumSHA1": "iP5slJJPRZUm0rfdII8OiATAACA=",
-			"path": "github.com/docker/docker/pkg/idtools",
 			"revision": "02caa73df411debed164f520a6a1304778f8b88c",
 			"revisionTime": "2016-05-28T10:48:36Z"
 		},
 		{
-			"checksumSHA1": "tdhmIGUaoOMEDymMC23qTS7bt0g=",
-			"path": "github.com/docker/docker/pkg/ioutils",
+			"checksumSHA1": "iP5slJJPRZUm0rfdII8OiATAACA=",
+			"path": "github.com/docker/docker/pkg/idtools",
 			"revision": "52debcd58ac91bf68503ce60561536911b74ff05",
 			"revisionTime": "2016-05-20T15:17:10Z"
 		},
@@ -278,6 +272,12 @@
 			"path": "github.com/docker/docker/pkg/ioutils",
 			"revision": "da39e9a4f920a15683dd0f23923c302d4db6eed5",
 			"revisionTime": "2016-05-28T08:11:04Z"
+		},
+		{
+			"checksumSHA1": "tdhmIGUaoOMEDymMC23qTS7bt0g=",
+			"path": "github.com/docker/docker/pkg/ioutils",
+			"revision": "52debcd58ac91bf68503ce60561536911b74ff05",
+			"revisionTime": "2016-05-20T15:17:10Z"
 		},
 		{
 			"checksumSHA1": "ndnAFCfsGC3upNQ6jAEwzxcurww=",
@@ -415,6 +415,12 @@
 		{
 			"path": "github.com/fsouza/go-dockerclient/external/golang.org/x/sys/unix",
 			"revision": "7c07ffce0f7e14a4da49ce92a2842d4e87be1c1e"
+		},
+		{
+			"checksumSHA1": "l0h1xY2dfhxmg2n1WNtq8jtFcP0=",
+			"path": "github.com/gizak/termui",
+			"revision": "d29684eba459e6aef23410bab8cadeb184b69cf2",
+			"revisionTime": "2016-10-25T21:22:53Z"
 		},
 		{
 			"comment": "v1.8.5-2-g6ec4abd",
