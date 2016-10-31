@@ -13,6 +13,7 @@ import (
 const (
 	numRecentEvals  = 5
 	numRecentAllocs = 5
+	numRecentEvents = 15
 )
 
 type JobWatchCommand struct {
@@ -163,9 +164,10 @@ func (c *JobWatcher) Run() int {
 	placementFailures := NewLatestEvalFailureGrid(8)
 
 	// Watch for allocation updates
-	latestAllocs := NewAllocUpdatesGrid(numRecentAllocs, 8)
+	//latestAllocs := NewAllocUpdatesGrid(numRecentAllocs, 8)
+	latestTaskEvents := NewTaskEventsGrid(numRecentEvents, 8)
 
-	// build layout
+	// Build layout
 	ui.Body.AddRows(
 		ui.NewRow(
 			ui.NewCol(3, 0, status),
@@ -175,14 +177,17 @@ func (c *JobWatcher) Run() int {
 			ui.NewCol(6, 0, latestEvals),
 			ui.NewCol(6, 0, placementFailures),
 		),
+		//ui.NewRow(
+		//ui.NewCol(6, 0, latestAllocs),
+		//ui.NewCol(6, 0, latestTaskEvents),
+		//),
 		ui.NewRow(
-			ui.NewCol(6, 0, latestAllocs),
+			ui.NewCol(12, 0, latestTaskEvents),
 		),
 	)
 
-	// calculate layout
+	// Calculate layout
 	ui.Body.Align()
-
 	ui.Render(ui.Body)
 
 	ui.Handle("/sys/kbd/q", func(ui.Event) {
@@ -723,4 +728,133 @@ func (m modifyIndexSorter) Swap(i, j int) { m[i], m[j] = m[j], m[i] }
 func sortAllocListStubByModifyIndex(allocs []*api.AllocationListStub) {
 	m := modifyIndexSorter(allocs)
 	sort.Sort(m)
+}
+
+type TaskEventsGrid struct {
+	*ui.Par
+	allocs []*api.AllocationListStub
+	limit  int
+	length int
+}
+
+func NewTaskEventsGrid(limit, length int) *TaskEventsGrid {
+	t := &TaskEventsGrid{
+		Par:    ui.NewPar(""),
+		limit:  limit,
+		length: length,
+	}
+	t.Height = 8
+	t.Border = true
+	t.BorderLabel = " Recent Task Events "
+	t.PaddingLeft = 1
+	t.render()
+
+	// Handle updates
+	t.Handle("/watch/job/allocs", func(e ui.Event) {
+		allocs, ok := e.Data.([]*api.AllocationListStub)
+		if !ok {
+			panic(e.Data)
+		}
+
+		t.allocs = allocs
+		t.render()
+		ui.Body.Align()
+		ui.Clear()
+		ui.Render(ui.Body)
+	})
+
+	return t
+}
+
+func (t *TaskEventsGrid) render() {
+	if t.allocs == nil {
+		t.Text = ""
+		return
+	}
+
+	recent := mostRecentTaskEvents(t.allocs, t.limit)
+
+	events := make([]string, len(recent)+1)
+	events[0] = "ID|Task|Group|State|Event|Description|Time"
+	for idx, w := range recent {
+		created := formatTime(time.Unix(0, w.event.Time))
+		events[idx+1] = fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s",
+			limit(w.allocID, t.length),
+			w.task,
+			w.taskgroup,
+			w.state.State,
+			w.event.Type,
+			limitElipses(w.event.Description(), int(float64(t.Width)*0.5)),
+			created)
+	}
+
+	t.Height = len(events) + 2
+	t.Text = formatList(events)
+}
+
+type taskEventWrapper struct {
+	state     *api.TaskState
+	event     *api.TaskEvent
+	allocID   string
+	taskgroup string
+	task      string
+}
+
+func mostRecentTaskEvents(allocs []*api.AllocationListStub, limit int) []taskEventWrapper {
+	events := make([]taskEventWrapper, limit)
+
+	for _, alloc := range allocs {
+		for task, state := range alloc.TaskStates {
+			//for _, e := range state.Events {
+			for j := len(state.Events) - 1; j >= 0; j-- {
+				e := state.Events[j]
+				insertPoint := sort.Search(limit, func(i int) bool {
+					w := events[i]
+					// Hasn't been set yet
+					if w.event == nil {
+						return true
+					}
+
+					if e.Time > w.event.Time {
+						return true
+					}
+
+					return false
+				})
+
+				if insertPoint >= limit {
+					continue
+				}
+
+				events[insertPoint].event = e
+				events[insertPoint].state = state
+				events[insertPoint].allocID = alloc.ID
+				events[insertPoint].taskgroup = alloc.TaskGroup
+				events[insertPoint].task = task
+			}
+		}
+	}
+
+	lastSet := limit - 1
+	for {
+		if events[lastSet].event == nil {
+			lastSet--
+		} else {
+			break
+		}
+	}
+
+	return events[:lastSet]
+}
+
+func limitElipses(s string, cutoff int) string {
+	oLength := len(s)
+	if oLength < cutoff {
+		return s
+	}
+	if cutoff < 3 {
+		return "..."
+	}
+
+	return fmt.Sprintf("%s...", limit(s, cutoff-3))
 }

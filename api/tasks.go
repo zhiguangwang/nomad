@@ -1,7 +1,11 @@
 package api
 
 import (
+	"fmt"
+	"strings"
 	"time"
+
+	"github.com/hashicorp/nomad/client"
 )
 
 // MemoryStats holds memory usage related stats
@@ -278,4 +282,111 @@ type TaskEvent struct {
 	VaultError       string
 	TaskSignalReason string
 	TaskSignal       string
+}
+
+func (t *TaskEvent) Description() string {
+	var desc string
+	switch t.Type {
+	case TaskStarted:
+		desc = "Task started by client"
+	case TaskReceived:
+		desc = "Task received by client"
+	case TaskFailedValidation:
+		if t.ValidationError != "" {
+			desc = t.ValidationError
+		} else {
+			desc = "Validation of task failed"
+		}
+	case TaskSetupFailure:
+		if t.SetupError != "" {
+			desc = t.SetupError
+		} else {
+			desc = "Task setup failed"
+		}
+	case TaskDriverFailure:
+		if t.DriverError != "" {
+			desc = t.DriverError
+		} else {
+			desc = "Failed to start task"
+		}
+	case TaskDownloadingArtifacts:
+		desc = "Client is downloading artifacts"
+	case TaskArtifactDownloadFailed:
+		if t.DownloadError != "" {
+			desc = t.DownloadError
+		} else {
+			desc = "Failed to download artifacts"
+		}
+	case TaskKilling:
+		if t.KillReason != "" {
+			desc = fmt.Sprintf("Killing task: %v", t.KillReason)
+		} else if t.KillTimeout != 0 {
+			desc = fmt.Sprintf("Sent interrupt. Waiting %v before force killing", t.KillTimeout)
+		} else {
+			desc = "Sent interrupt"
+		}
+	case TaskKilled:
+		if t.KillError != "" {
+			desc = t.KillError
+		} else {
+			desc = "Task successfully killed"
+		}
+	case TaskTerminated:
+		var parts []string
+		parts = append(parts, fmt.Sprintf("Exit Code: %d", t.ExitCode))
+
+		if t.Signal != 0 {
+			parts = append(parts, fmt.Sprintf("Signal: %d", t.Signal))
+		}
+
+		if t.Message != "" {
+			parts = append(parts, fmt.Sprintf("Exit Message: %q", t.Message))
+		}
+		desc = strings.Join(parts, ", ")
+	case TaskRestarting:
+		in := fmt.Sprintf("Task restarting in %v", time.Duration(t.StartDelay))
+		if t.RestartReason != "" && t.RestartReason != client.ReasonWithinPolicy {
+			desc = fmt.Sprintf("%s - %s", t.RestartReason, in)
+		} else {
+			desc = in
+		}
+	case TaskNotRestarting:
+		if t.RestartReason != "" {
+			desc = t.RestartReason
+		} else {
+			desc = "Task exceeded restart policy"
+		}
+	case TaskVaultRenewalFailed:
+		if t.VaultError != "" {
+			desc = t.VaultError
+		} else {
+			desc = "Task's Vault token failed to be renewed"
+		}
+	case TaskSiblingFailed:
+		if t.FailedSibling != "" {
+			desc = fmt.Sprintf("Task's sibling %q failed", t.FailedSibling)
+		} else {
+			desc = "Task's sibling failed"
+		}
+	case TaskSignaling:
+		sig := t.TaskSignal
+		reason := t.TaskSignalReason
+
+		if sig == "" && reason == "" {
+			desc = "Task being sent a signal"
+		} else if sig == "" {
+			desc = reason
+		} else if reason == "" {
+			desc = fmt.Sprintf("Task being sent signal %v", sig)
+		} else {
+			desc = fmt.Sprintf("Task being sent signal %v: %v", sig, reason)
+		}
+	case TaskRestartSignal:
+		if t.RestartReason != "" {
+			desc = t.RestartReason
+		} else {
+			desc = "Task signaled to restart"
+		}
+	}
+	return desc
 }
