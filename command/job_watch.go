@@ -799,51 +799,36 @@ type taskEventWrapper struct {
 	task      string
 }
 
-func mostRecentTaskEvents(allocs []*api.AllocationListStub, limit int) []taskEventWrapper {
-	events := make([]taskEventWrapper, limit)
+type taskEventWrappers []*taskEventWrapper
+
+func (t taskEventWrappers) Len() int           { return len(t) }
+func (t taskEventWrappers) Less(i, j int) bool { return t[i].event.Time > t[j].event.Time }
+func (t taskEventWrappers) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
+
+func mostRecentTaskEvents(allocs []*api.AllocationListStub, limit int) []*taskEventWrapper {
+	var events []*taskEventWrapper
 
 	for _, alloc := range allocs {
 		for task, state := range alloc.TaskStates {
-			//for _, e := range state.Events {
-			for j := len(state.Events) - 1; j >= 0; j-- {
-				e := state.Events[j]
-				insertPoint := sort.Search(limit, func(i int) bool {
-					w := events[i]
-					// Hasn't been set yet
-					if w.event == nil {
-						return true
-					}
-
-					if e.Time > w.event.Time {
-						return true
-					}
-
-					return false
-				})
-
-				if insertPoint >= limit {
-					continue
+			for _, e := range state.Events {
+				w := &taskEventWrapper{
+					event:     e,
+					state:     state,
+					allocID:   alloc.ID,
+					taskgroup: alloc.TaskGroup,
+					task:      task,
 				}
-
-				events[insertPoint].event = e
-				events[insertPoint].state = state
-				events[insertPoint].allocID = alloc.ID
-				events[insertPoint].taskgroup = alloc.TaskGroup
-				events[insertPoint].task = task
+				events = append(events, w)
 			}
 		}
 	}
 
-	lastSet := limit - 1
-	for {
-		if events[lastSet].event == nil {
-			lastSet--
-		} else {
-			break
-		}
+	sort.Sort(taskEventWrappers(events))
+	cut := limit
+	if l := len(events); l < limit {
+		cut = l
 	}
-
-	return events[:lastSet]
+	return events[:cut]
 }
 
 func limitElipses(s string, cutoff int) string {
