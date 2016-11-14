@@ -75,6 +75,10 @@ Run Options:
     the evaluation ID will be printed to the screen, which can be used to
     examine the evaluation using the eval-status command.
 
+  -watch
+	After submitting the job to the Nomad servers, switch to the job watch
+	command.
+
   -verbose
     Display full information.
 
@@ -96,12 +100,13 @@ func (c *RunCommand) Synopsis() string {
 }
 
 func (c *RunCommand) Run(args []string) int {
-	var detach, verbose, output bool
+	var detach, watch, verbose, output bool
 	var checkIndexStr, vaultToken string
 
 	flags := c.Meta.FlagSet("run", FlagSetClient)
 	flags.Usage = func() { c.Ui.Output(c.Help()) }
 	flags.BoolVar(&detach, "detach", false, "")
+	flags.BoolVar(&watch, "watch", false, "")
 	flags.BoolVar(&verbose, "verbose", false, "")
 	flags.BoolVar(&output, "output", false, "")
 	flags.StringVar(&checkIndexStr, "check-index", "", "")
@@ -123,6 +128,12 @@ func (c *RunCommand) Run(args []string) int {
 	if len(args) != 1 {
 		c.Ui.Error(c.Help())
 		return 1
+	}
+
+	// Truncate the id unless full length is requested
+	length := shortId
+	if verbose {
+		length = fullId
 	}
 
 	// Get Job struct from Jobfile
@@ -230,15 +241,21 @@ func (c *RunCommand) Run(args []string) int {
 		return 0
 	}
 
-	w := &JobWatcher{
-		Meta: c.Meta,
-		Config: &JobWatchConfig{
-			JobID:     job.ID,
-			ExitAfter: 10,
-		},
+	if watch {
+		w := &JobWatcher{
+			Meta: c.Meta,
+			Config: &JobWatchConfig{
+				JobID:     job.ID,
+				ExitAfter: 10,
+			},
+		}
+
+		return w.Run()
 	}
 
-	return w.Run()
+	// Detach was not specified, so start monitoring
+	mon := newMonitor(c.Ui, client, length)
+	return mon.monitor(evalID, false)
 }
 
 // parseCheckIndex parses the check-index flag and returns the index, whether it

@@ -336,6 +336,7 @@ func dumpAllocStatus(ui cli.Ui, alloc *api.Allocation, length int) {
 	ui.Output(formatAllocMetrics(alloc.Metrics, true, "  "))
 }
 
+// XXX lots relies on this
 func formatAllocMetrics(metrics *api.AllocationMetric, scores bool, prefix string) string {
 	// Print a helpful message if we have an eligibility problem
 	var out string
