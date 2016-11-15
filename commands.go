@@ -84,8 +84,8 @@ func Commands(metaPtr *command.Meta) map[string]cli.CommandFactory {
 				Meta: meta,
 			}, nil
 		},
-		"job watch": func() (cli.Command, error) {
-			return &command.JobWatchCommand{
+		"job monitor": func() (cli.Command, error) {
+			return &command.JobMonitorCommand{
 				Meta: meta,
 			}, nil
 		},

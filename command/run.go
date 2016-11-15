@@ -75,8 +75,8 @@ Run Options:
     the evaluation ID will be printed to the screen, which can be used to
     examine the evaluation using the eval-status command.
 
-  -watch
-	After submitting the job to the Nomad servers, switch to the job watch
+  -monitor
+	After submitting the job to the Nomad servers, switch to the job monitor
 	command.
 
   -verbose
@@ -100,13 +100,13 @@ func (c *RunCommand) Synopsis() string {
 }
 
 func (c *RunCommand) Run(args []string) int {
-	var detach, watch, verbose, output bool
+	var detach, monitor, verbose, output bool
 	var checkIndexStr, vaultToken string
 
 	flags := c.Meta.FlagSet("run", FlagSetClient)
 	flags.Usage = func() { c.Ui.Output(c.Help()) }
 	flags.BoolVar(&detach, "detach", false, "")
-	flags.BoolVar(&watch, "watch", false, "")
+	flags.BoolVar(&monitor, "monitor", false, "")
 	flags.BoolVar(&verbose, "verbose", false, "")
 	flags.BoolVar(&output, "output", false, "")
 	flags.StringVar(&checkIndexStr, "check-index", "", "")
@@ -241,10 +241,10 @@ func (c *RunCommand) Run(args []string) int {
 		return 0
 	}
 
-	if watch {
+	if monitor {
 		w := &JobWatcher{
 			Meta: c.Meta,
-			Config: &JobWatchConfig{
+			Config: &JobMonitorConfig{
 				JobID:     job.ID,
 				ExitAfter: 10,
 			},

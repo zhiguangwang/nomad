@@ -16,11 +16,11 @@ const (
 	numRecentEvents = 15
 )
 
-type JobWatchCommand struct {
+type JobMonitorCommand struct {
 	Meta
 }
 
-type JobWatchConfig struct {
+type JobMonitorConfig struct {
 	// JobID is the job to watch
 	JobID string
 
@@ -29,16 +29,16 @@ type JobWatchConfig struct {
 	ExitAfter int
 }
 
-func (c *JobWatchCommand) Help() string {
+func (c *JobMonitorCommand) Help() string {
 	helpText := `
-Usage: nomad job watch [options] <job>
+Usage: nomad job monitor [options] <job>
 
 
 General Options:
 
   ` + generalOptionsUsage() + `
 
-Job Watch Options:
+Job Monitor Options:
 
   -exit-after=<seconds>
 	Causes the watch to automatically exit after the given number of seconds
@@ -50,14 +50,14 @@ Job Watch Options:
 	return strings.TrimSpace(helpText)
 }
 
-func (c *JobWatchCommand) Synopsis() string {
-	return "Watch a job for scheduling and task related events."
+func (c *JobMonitorCommand) Synopsis() string {
+	return "Monitor a job for scheduling and task related events."
 }
 
-func (c *JobWatchCommand) Run(args []string) int {
+func (c *JobMonitorCommand) Run(args []string) int {
 	var exitAfter int
 
-	flags := c.Meta.FlagSet("watch", FlagSetClient)
+	flags := c.Meta.FlagSet("monitor", FlagSetClient)
 	flags.Usage = func() { c.Ui.Output(c.Help()) }
 	flags.IntVar(&exitAfter, "exit-after", 0, "")
 
@@ -74,7 +74,7 @@ func (c *JobWatchCommand) Run(args []string) int {
 
 	w := &JobWatcher{
 		Meta: c.Meta,
-		Config: &JobWatchConfig{
+		Config: &JobMonitorConfig{
 			JobID:     args[0],
 			ExitAfter: exitAfter,
 		},
@@ -86,7 +86,7 @@ func (c *JobWatchCommand) Run(args []string) int {
 type JobWatcher struct {
 	Meta
 
-	Config *JobWatchConfig
+	Config *JobMonitorConfig
 
 	client *api.Client
 
