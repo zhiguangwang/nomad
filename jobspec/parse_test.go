@@ -539,26 +539,24 @@ func TestParse(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Logf("Testing parse: %s", tc.File)
-
-		path, err := filepath.Abs(filepath.Join("./test-fixtures", tc.File))
-		if err != nil {
-			t.Fatalf("file: %s\n\n%s", tc.File, err)
-			continue
-		}
-
-		actual, err := ParseFile(path)
-		if (err != nil) != tc.Err {
-			t.Fatalf("file: %s\n\n%s", tc.File, err)
-			continue
-		}
-
-		if !reflect.DeepEqual(actual, tc.Result) {
-			for _, d := range pretty.Diff(actual, tc.Result) {
-				t.Logf(d)
+		t.Run(tc.File, func(t *testing.T) {
+			path, err := filepath.Abs(filepath.Join("./test-fixtures", tc.File))
+			if err != nil {
+				t.Fatalf("file: %s\n\n%s", tc.File, err)
 			}
-			t.Fatalf("file: %s", tc.File)
-		}
+
+			actual, err := ParseFile(path)
+			if (err != nil) != tc.Err {
+				t.Fatalf("file: %s\n\n%s", tc.File, err)
+			}
+
+			if !reflect.DeepEqual(actual, tc.Result) {
+				for _, d := range pretty.Diff(actual, tc.Result) {
+					t.Logf(d)
+				}
+				t.Errorf("file: %s", tc.File)
+			}
+		})
 	}
 }
 

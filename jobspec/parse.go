@@ -1,9 +1,9 @@
 package jobspec
 
 import (
-	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,55 +18,122 @@ import (
 	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/mitchellh/mapstructure"
+	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-zcl/zcl"
+	"github.com/zclconf/go-zcl/zcldec"
+	"github.com/zclconf/go-zcl/zclparse"
 )
 
 var reDynamicPorts = regexp.MustCompile("^[a-zA-Z0-9_]+$")
 var errPortLabel = fmt.Errorf("Port label does not conform to naming requirements %s", reDynamicPorts.String())
+
+var jobSpecRootSchema = &zcl.BodySchema{
+	Blocks: []zcl.BlockHeaderSchema{
+		{
+			Type:       "job",
+			LabelNames: []string{"name"},
+		},
+	},
+}
+
+var jobDecodeSpec = &zcldec.ObjectSpec{
+	"all_at_once": &zcldec.AttrSpec{
+		Name: "all_at_once",
+		Type: cty.Bool,
+	},
+	/*"constraints": &zcldec.BlockSetSpec{
+		TypeName: "constraint",
+		Nested:   constraintDecodeSpec,
+	},*/
+	"datacenters": &zcldec.AttrSpec{
+		Name:     "datacenters",
+		Type:     cty.List(cty.String),
+		Required: true,
+	},
+	"id": &zcldec.AttrSpec{
+		Name: "id",
+		Type: cty.String,
+	},
+	"name": &zcldec.AttrSpec{
+		Name: "name",
+		Type: cty.String,
+	},
+	"priority": &zcldec.AttrSpec{
+		Name: "all_at_once",
+		Type: cty.Number,
+	},
+	"region": &zcldec.AttrSpec{
+		Name: "region",
+		Type: cty.String,
+	},
+	"type": &zcldec.AttrSpec{
+		Name: "type",
+		Type: cty.String,
+	},
+	"update": &zcldec.BlockSpec{
+		TypeName: "update",
+		Nested: &zcldec.ObjectSpec{
+			"auto_revert": &zcldec.AttrSpec{
+				Name: "auto_revert",
+				Type: cty.Bool,
+			},
+			"canary": &zcldec.AttrSpec{
+				Name: "auto_revert",
+				Type: cty.String,
+			},
+			"health_check": &zcldec.AttrSpec{
+				Name: "health_check",
+				Type: cty.String,
+			},
+			"healthy_deadline": &zcldec.AttrSpec{
+				Name: "healthy_deadline",
+				Type: cty.String,
+			},
+			"max_parallel": &zcldec.AttrSpec{
+				Name: "max_parallel",
+				Type: cty.Number,
+			},
+			"min_healthy_time": &zcldec.AttrSpec{
+				Name: "min_healthy_time",
+				Type: cty.String,
+			},
+			"stagger": &zcldec.AttrSpec{
+				Name: "stagger",
+				Type: cty.String,
+			},
+		},
+	},
+	"vault_token": &zcldec.AttrSpec{
+		Name: "vault_token",
+		Type: cty.String,
+	},
+}
+
+var constraintDecodeSpec = &zcldec.ObjectSpec{
+	"attribute": &zcldec.AttrSpec{
+		Name: "attribute",
+		Type: cty.String,
+	},
+	"operator": &zcldec.AttrSpec{
+		Name: "operator",
+		Type: cty.String,
+	},
+	"value": &zcldec.AttrSpec{
+		Name: "value",
+		Type: cty.String,
+	},
+}
 
 // Parse parses the job spec from the given io.Reader.
 //
 // Due to current internal limitations, the entire contents of the
 // io.Reader will be copied into memory first before parsing.
 func Parse(r io.Reader) (*api.Job, error) {
-	// Copy the reader into an in-memory buffer first since HCL requires it.
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
-		return nil, err
+	job, diags := parse(r, "")
+	if diags.HasErrors() {
+		return nil, diags
 	}
-
-	// Parse the buffer
-	root, err := hcl.Parse(buf.String())
-	if err != nil {
-		return nil, fmt.Errorf("error parsing: %s", err)
-	}
-	buf.Reset()
-
-	// Top-level item should be a list
-	list, ok := root.Node.(*ast.ObjectList)
-	if !ok {
-		return nil, fmt.Errorf("error parsing: root should be an object")
-	}
-
-	// Check for invalid keys
-	valid := []string{
-		"job",
-	}
-	if err := checkHCLKeys(list, valid); err != nil {
-		return nil, err
-	}
-
-	var job api.Job
-
-	// Parse the job out
-	matches := list.Filter("job")
-	if len(matches.Items) == 0 {
-		return nil, fmt.Errorf("'job' stanza not found")
-	}
-	if err := parseJob(&job, matches); err != nil {
-		return nil, fmt.Errorf("error parsing 'job': %s", err)
-	}
-
-	return &job, nil
+	return job, nil
 }
 
 // ParseFile parses the given path as a job spec.
@@ -82,160 +149,243 @@ func ParseFile(path string) (*api.Job, error) {
 	}
 	defer f.Close()
 
-	return Parse(f)
+	job, diags := parse(f, path)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+	return job, nil
 }
 
-func parseJob(result *api.Job, list *ast.ObjectList) error {
-	if len(list.Items) != 1 {
-		return fmt.Errorf("only one 'job' block allowed")
-	}
-	list = list.Children()
-	if len(list.Items) != 1 {
-		return fmt.Errorf("'job' block missing name")
-	}
-
-	// Get our job object
-	obj := list.Items[0]
-
-	// Decode the full thing into a map[string]interface for ease
-	var m map[string]interface{}
-	if err := hcl.DecodeObject(&m, obj.Val); err != nil {
-		return err
-	}
-	delete(m, "constraint")
-	delete(m, "meta")
-	delete(m, "update")
-	delete(m, "periodic")
-	delete(m, "vault")
-	delete(m, "parameterized")
-
-	// Set the ID and name to the object key
-	result.ID = helper.StringToPtr(obj.Keys[0].Token.Value().(string))
-	result.Name = helper.StringToPtr(*result.ID)
-
-	// Decode the rest
-	if err := mapstructure.WeakDecode(m, result); err != nil {
-		return err
-	}
-
-	// Value should be an object
-	var listVal *ast.ObjectList
-	if ot, ok := obj.Val.(*ast.ObjectType); ok {
-		listVal = ot.List
-	} else {
-		return fmt.Errorf("job '%s' value: should be an object", *result.ID)
-	}
-
-	// Check for invalid keys
-	valid := []string{
-		"all_at_once",
-		"constraint",
-		"datacenters",
-		"parameterized",
-		"group",
-		"id",
-		"meta",
-		"name",
-		"periodic",
-		"priority",
-		"region",
-		"task",
-		"type",
-		"update",
-		"vault",
-		"vault_token",
-	}
-	if err := checkHCLKeys(listVal, valid); err != nil {
-		return multierror.Prefix(err, "job:")
-	}
-
-	// Parse constraints
-	if o := listVal.Filter("constraint"); len(o.Items) > 0 {
-		if err := parseConstraints(&result.Constraints, o); err != nil {
-			return multierror.Prefix(err, "constraint ->")
+func parse(r io.Reader, path string) (*api.Job, zcl.Diagnostics) {
+	src, err := ioutil.ReadAll(r)
+	if err != nil {
+		return nil, zcl.Diagnostics{
+			{
+				Severity: zcl.DiagError,
+				Summary:  "Failed to read jobspec",
+				Detail:   fmt.Sprintf("Jobspec could not be read: %s", err),
+			},
 		}
 	}
 
-	// If we have an update strategy, then parse that
-	if o := listVal.Filter("update"); len(o.Items) > 0 {
-		if err := parseUpdate(&result.Update, o); err != nil {
-			return multierror.Prefix(err, "update ->")
-		}
+	parser := zclparse.NewParser()
+	file, diags := parser.ParseZCL(src, "")
+	if diags.HasErrors() {
+		return nil, diags
 	}
 
-	// If we have a periodic definition, then parse that
-	if o := listVal.Filter("periodic"); len(o.Items) > 0 {
-		if err := parsePeriodic(&result.Periodic, o); err != nil {
-			return multierror.Prefix(err, "periodic ->")
-		}
+	content, contentDiags := file.Body.Content(jobSpecRootSchema)
+	diags = append(diags, contentDiags...)
+	if contentDiags.HasErrors() {
+		return nil, diags
 	}
 
-	// If we have a parameterized definition, then parse that
-	if o := listVal.Filter("parameterized"); len(o.Items) > 0 {
-		if err := parseParameterizedJob(&result.ParameterizedJob, o); err != nil {
-			return multierror.Prefix(err, "parameterized ->")
-		}
+	if len(content.Blocks) > 1 {
+		diags = append(diags, &zcl.Diagnostic{
+			Severity: zcl.DiagError,
+			Summary:  "Extraneous job block",
+			Detail:   "Only one job block is allowed.",
+			Subject:  &content.Blocks[1].TypeRange,
+		})
+		return nil, diags
 	}
 
-	// Parse out meta fields. These are in HCL as a list so we need
-	// to iterate over them and merge them.
-	if metaO := listVal.Filter("meta"); len(metaO.Items) > 0 {
-		for _, o := range metaO.Elem().Items {
-			var m map[string]interface{}
-			if err := hcl.DecodeObject(&m, o.Val); err != nil {
-				return err
+	jobBlock := content.Blocks[0]
+
+	job, jobDiags := parseJob(jobBlock)
+	diags = append(diags, jobDiags...)
+
+	return job, diags
+}
+
+func parseJob(block *zcl.Block) (*api.Job, zcl.Diagnostics) {
+	name := block.Labels[0] // jobSpecRootSchema guarantees exactly one
+
+	jobVal, diags := zcldec.Decode(block.Body, jobDecodeSpec, nil)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	job := &api.Job{
+		Name: &name,
+		ID:   &name,
+	}
+
+	if id := jobVal.GetAttr("id"); !id.IsNull() {
+		job.ID = helper.StringToPtr(id.AsString())
+	}
+	if name := jobVal.GetAttr("name"); !name.IsNull() {
+		job.Name = helper.StringToPtr(name.AsString())
+	}
+	if datacenters := jobVal.GetAttr("datacenters"); !datacenters.IsNull() {
+		count := datacenters.LengthInt()
+		job.Datacenters = make([]string, 0, count)
+		it := datacenters.ElementIterator()
+		for it.Next() {
+			_, dc := it.Element()
+			job.Datacenters = append(job.Datacenters, dc.AsString())
+		}
+	}
+	if region := jobVal.GetAttr("region"); !region.IsNull() {
+		job.Region = helper.StringToPtr(region.AsString())
+	}
+	if jobType := jobVal.GetAttr("type"); !jobType.IsNull() {
+		job.Type = helper.StringToPtr(jobType.AsString())
+	}
+
+	return job, diags
+	/*
+		if len(list.Items) != 1 {
+			return fmt.Errorf("only one 'job' block allowed")
+		}
+		list = list.Children()
+		if len(list.Items) != 1 {
+			return fmt.Errorf("'job' block missing name")
+		}
+
+		// Get our job object
+		obj := list.Items[0]
+
+		// Decode the full thing into a map[string]interface for ease
+		var m map[string]interface{}
+		if err := hcl.DecodeObject(&m, obj.Val); err != nil {
+			return nil, err
+		}
+		delete(m, "constraint")
+		delete(m, "meta")
+		delete(m, "update")
+		delete(m, "periodic")
+		delete(m, "vault")
+		delete(m, "parameterized")
+
+		// Set the ID and name to the object key
+		result.ID = helper.StringToPtr(obj.Keys[0].Token.Value().(string))
+		result.Name = helper.StringToPtr(*result.ID)
+
+		// Decode the rest
+		if err := mapstructure.WeakDecode(m, result); err != nil {
+			return nil, err
+		}
+
+		// Value should be an object
+		var listVal *ast.ObjectList
+		if ot, ok := obj.Val.(*ast.ObjectType); ok {
+			listVal = ot.List
+		} else {
+			return fmt.Errorf("job '%s' value: should be an object", *result.ID)
+		}
+
+		// Check for invalid keys
+		valid := []string{
+			"all_at_once",
+			"constraint",
+			"datacenters",
+			"parameterized",
+			"group",
+			"id",
+			"meta",
+			"name",
+			"periodic",
+			"priority",
+			"region",
+			"task",
+			"type",
+			"update",
+			"vault",
+			"vault_token",
+		}
+		if err := checkHCLKeys(listVal, valid); err != nil {
+			return multierror.Prefix(err, "job:")
+		}
+
+		// Parse constraints
+		if o := listVal.Filter("constraint"); len(o.Items) > 0 {
+			if err := parseConstraints(&result.Constraints, o); err != nil {
+				return multierror.Prefix(err, "constraint ->")
 			}
-			if err := mapstructure.WeakDecode(m, &result.Meta); err != nil {
-				return err
+		}
+
+		// If we have an update strategy, then parse that
+		if o := listVal.Filter("update"); len(o.Items) > 0 {
+			if err := parseUpdate(&result.Update, o); err != nil {
+				return multierror.Prefix(err, "update ->")
 			}
 		}
-	}
 
-	// If we have tasks outside, create TaskGroups for them
-	if o := listVal.Filter("task"); len(o.Items) > 0 {
-		var tasks []*api.Task
-		if err := parseTasks(*result.Name, "", &tasks, o); err != nil {
-			return multierror.Prefix(err, "task:")
-		}
-
-		result.TaskGroups = make([]*api.TaskGroup, len(tasks), len(tasks)*2)
-		for i, t := range tasks {
-			result.TaskGroups[i] = &api.TaskGroup{
-				Name:  helper.StringToPtr(t.Name),
-				Tasks: []*api.Task{t},
+		// If we have a periodic definition, then parse that
+		if o := listVal.Filter("periodic"); len(o.Items) > 0 {
+			if err := parsePeriodic(&result.Periodic, o); err != nil {
+				return multierror.Prefix(err, "periodic ->")
 			}
 		}
-	}
 
-	// Parse the task groups
-	if o := listVal.Filter("group"); len(o.Items) > 0 {
-		if err := parseGroups(result, o); err != nil {
-			return multierror.Prefix(err, "group:")
-		}
-	}
-
-	// If we have a vault block, then parse that
-	if o := listVal.Filter("vault"); len(o.Items) > 0 {
-		jobVault := &api.Vault{
-			Env:        helper.BoolToPtr(true),
-			ChangeMode: helper.StringToPtr("restart"),
+		// If we have a parameterized definition, then parse that
+		if o := listVal.Filter("parameterized"); len(o.Items) > 0 {
+			if err := parseParameterizedJob(&result.ParameterizedJob, o); err != nil {
+				return multierror.Prefix(err, "parameterized ->")
+			}
 		}
 
-		if err := parseVault(jobVault, o); err != nil {
-			return multierror.Prefix(err, "vault ->")
-		}
-
-		// Go through the task groups/tasks and if they don't have a Vault block, set it
-		for _, tg := range result.TaskGroups {
-			for _, task := range tg.Tasks {
-				if task.Vault == nil {
-					task.Vault = jobVault
+		// Parse out meta fields. These are in HCL as a list so we need
+		// to iterate over them and merge them.
+		if metaO := listVal.Filter("meta"); len(metaO.Items) > 0 {
+			for _, o := range metaO.Elem().Items {
+				var m map[string]interface{}
+				if err := hcl.DecodeObject(&m, o.Val); err != nil {
+					return nil, err
+				}
+				if err := mapstructure.WeakDecode(m, &result.Meta); err != nil {
+					return nil, err
 				}
 			}
 		}
-	}
 
-	return nil
+		// If we have tasks outside, create TaskGroups for them
+		if o := listVal.Filter("task"); len(o.Items) > 0 {
+			var tasks []*api.Task
+			if err := parseTasks(*result.Name, "", &tasks, o); err != nil {
+				return multierror.Prefix(err, "task:")
+			}
+
+			result.TaskGroups = make([]*api.TaskGroup, len(tasks), len(tasks)*2)
+			for i, t := range tasks {
+				result.TaskGroups[i] = &api.TaskGroup{
+					Name:  helper.StringToPtr(t.Name),
+					Tasks: []*api.Task{t},
+				}
+			}
+		}
+
+		// Parse the task groups
+		if o := listVal.Filter("group"); len(o.Items) > 0 {
+			if err := parseGroups(result, o); err != nil {
+				return multierror.Prefix(err, "group:")
+			}
+		}
+
+		// If we have a vault block, then parse that
+		if o := listVal.Filter("vault"); len(o.Items) > 0 {
+			jobVault := &api.Vault{
+				Env:        helper.BoolToPtr(true),
+				ChangeMode: helper.StringToPtr("restart"),
+			}
+
+			if err := parseVault(jobVault, o); err != nil {
+				return multierror.Prefix(err, "vault ->")
+			}
+
+			// Go through the task groups/tasks and if they don't have a Vault block, set it
+			for _, tg := range result.TaskGroups {
+				for _, task := range tg.Tasks {
+					if task.Vault == nil {
+						task.Vault = jobVault
+					}
+				}
+			}
+		}
+
+		return nil, nil
+	*/
 }
 
 func parseGroups(result *api.Job, list *ast.ObjectList) error {
