@@ -11,7 +11,7 @@ func main() {
 	plugin.Serve(&plugin.ServeConfig{
 		HandshakeConfig: shared.Handshake,
 		Plugins: map[string]plugin.Plugin{
-			"raw_exec": &shared.RawExecPlugin{Impl: &raw_exec_impl.RawExec{}},
+			"raw_exec": &shared.RawExecPlugin{Impl: &raw_exec.RawExec{}},
 		},
 
 		GRPCServer: plugin.DefaultGRPCServer,
