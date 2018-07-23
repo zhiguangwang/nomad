@@ -27,6 +27,21 @@ func (e *ExecutorPluginCommand) Synopsis() string {
 }
 
 func (e *ExecutorPluginCommand) Run(args []string) int {
+	//newExec := args[0]
+
+	//	if newExec == "true" {
+	//		config := args[1]
+	//		var executorConfig estructs.Config
+	//		if err := json.Unmarshal([]byte(config), &executorConfig); err != nil {
+	//			return 1
+	//		}
+	//		plugin.Serve(&plugin.ServeConfig{
+	//			HandshakeConfig: dutils.HandshakeConfig,
+	//			Plugins:         dutils.GetPluginMap(),
+	//		})
+	//		return 0
+	//
+	//	} else {
 	if len(args) != 1 {
 		e.Ui.Error("json configuration not provided")
 		return 1
@@ -46,4 +61,5 @@ func (e *ExecutorPluginCommand) Run(args []string) int {
 		Plugins:         driver.GetPluginMap(stdo, executorConfig.LogLevel),
 	})
 	return 0
+	//	}
 }
