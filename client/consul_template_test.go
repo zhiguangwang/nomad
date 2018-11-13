@@ -168,7 +168,7 @@ func (h *testHarness) start(t *testing.T) {
 
 func (h *testHarness) startWithErr() error {
 	var err error
-	h.manager, err = NewTaskTemplateManager(&TaskTemplateManagerConfig{
+	h.manager, err = NewTaskTemplateManager(nil, &TaskTemplateManagerConfig{
 		Hooks:                h.mockHooks,
 		Templates:            h.templates,
 		ClientConfig:         h.config,
@@ -303,7 +303,7 @@ func TestTaskTemplateManager_InvalidConfig(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := NewTaskTemplateManager(c.config)
+			_, err := NewTaskTemplateManager(nil, c.config)
 			if err != nil {
 				if c.expectedErr == "" {
 					t.Fatalf("unexpected error: %v", err)

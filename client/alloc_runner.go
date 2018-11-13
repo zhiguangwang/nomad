@@ -29,6 +29,12 @@ var (
 	allocRunnerStateAllocDirKey  = []byte("alloc-dir")
 )
 
+type TemplateManagerLogger struct {
+	logger   *log.Logger
+	allocID  string
+	taskName string
+}
+
 // AllocStateUpdater is used to update the status of an allocation
 type AllocStateUpdater func(alloc *structs.Allocation)
 
@@ -351,9 +357,10 @@ func (r *AllocRunner) RestoreState() error {
 			r.logger.Printf("[ERR] client: failed to restore state for alloc %s task %q: %v", r.allocID, name, err)
 			mErr.Errors = append(mErr.Errors, err)
 		} else if !r.alloc.TerminalStatus() {
-			// Only start if the alloc isn't in a terminal status.
-			go tr.Run()
+			ctx := context.WithValue(context.Background(), "logger", &TemplateManagerLogger{r.logger, r.allocID, name})
 
+			// Only start if the alloc isn't in a terminal status.
+			go tr.RunWithContext(ctx)
 			if upgrading {
 				if err := tr.SaveState(); err != nil {
 					r.logger.Printf("[WARN] client: initial save state for alloc %s task %s failed: %v", r.allocID, name, err)
