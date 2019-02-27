@@ -487,7 +487,6 @@ func parseVolumes(out *map[string]*api.Volume, list *ast.ObjectList) error {
 
 			cfg = cfgL[0]
 		}
-
 		delete(m, "config")
 
 		var result api.Volume
