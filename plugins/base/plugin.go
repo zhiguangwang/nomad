@@ -20,6 +20,9 @@ const (
 
 	// PluginTypeDevice implements the device plugin interface
 	PluginTypeDevice = "device"
+
+	// PluginTypeCSI implements the CSI plugin interface
+	PluginTypeCSI = "csi"
 )
 
 var (
