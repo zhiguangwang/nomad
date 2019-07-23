@@ -7,6 +7,10 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
+
+	hclog "github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/nomad/helper"
 )
 
 // sys/resource.h
@@ -27,6 +31,12 @@ func Times(percpu bool) ([]TimesStat, error) {
 }
 
 func TimesWithContext(ctx context.Context, percpu bool) ([]TimesStat, error) {
+
+	if v := ctx.Value(helper.CtxNomadKey("logger")); v != nil {
+		logger := v.(hclog.Logger)
+		defer helper.TimeTrack(time.Now(), "TimesWithContext", logger)
+	}
+
 	if percpu {
 		return perCPUTimes()
 	}

@@ -934,10 +934,14 @@ func (a *Agent) ShouldReload(newConfig *Config) (agent, http bool) {
 	a.configLock.Lock()
 	defer a.configLock.Unlock()
 
+	if a.config.LogLevel != newConfig.LogLevel {
+		agent = true
+	}
+
 	isEqual, err := a.config.TLSConfig.CertificateInfoIsEqual(newConfig.TLSConfig)
 	if err != nil {
 		a.logger.Error("parsing TLS certificate", "error", err)
-		return false, false
+		return agent, false
 	} else if !isEqual {
 		return true, true
 	}
@@ -961,6 +965,10 @@ func (a *Agent) ShouldReload(newConfig *Config) (agent, http bool) {
 func (a *Agent) Reload(newConfig *Config) error {
 	a.configLock.Lock()
 	defer a.configLock.Unlock()
+
+	if newConfig.LogLevel != a.config.LogLevel {
+		a.logger.SetLevel(log.LevelFromString(newConfig.LogLevel))
+	}
 
 	if newConfig == nil || newConfig.TLSConfig == nil {
 		return fmt.Errorf("cannot reload agent with nil configuration")

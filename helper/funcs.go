@@ -6,9 +6,12 @@ import (
 	"regexp"
 	"time"
 
+	hclog "github.com/hashicorp/go-hclog"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/hcl/hcl/ast"
 )
+
+type CtxNomadKey string
 
 // validUUID is used to check if a given string looks like a UUID
 var validUUID = regexp.MustCompile(`(?i)^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$`)
@@ -361,4 +364,9 @@ func CheckHCLKeys(node ast.Node, valid []string) error {
 	}
 
 	return result
+}
+
+func TimeTrack(start time.Time, name string, log hclog.Logger) {
+	elapsed := time.Since(start)
+	log.Trace(fmt.Sprintf("%s took %s", name, elapsed))
 }

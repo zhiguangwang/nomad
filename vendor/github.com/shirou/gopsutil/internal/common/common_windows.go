@@ -4,9 +4,12 @@ package common
 
 import (
 	"context"
+	"time"
 	"unsafe"
 
 	"github.com/StackExchange/wmi"
+	hclog "github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/nomad/helper"
 	"golang.org/x/sys/windows"
 )
 
@@ -115,6 +118,12 @@ func CreateCounter(query windows.Handle, pname, cname string) (*CounterInfo, err
 
 // WMIQueryWithContext - wraps wmi.Query with a timed-out context to avoid hanging
 func WMIQueryWithContext(ctx context.Context, query string, dst interface{}, connectServerArgs ...interface{}) error {
+
+	if v := ctx.Value(helper.CtxNomadKey("logger")); v != nil {
+		logger := v.(hclog.Logger)
+		defer helper.TimeTrack(time.Now(), "WMIQueryWithContext", logger)
+	}
+
 	if _, ok := ctx.Deadline(); !ok {
 		ctxTimeout, cancel := context.WithTimeout(ctx, Timeout)
 		defer cancel()

@@ -3,14 +3,19 @@
 package stats
 
 import (
+	"context"
+
+	"github.com/hashicorp/nomad/helper"
 	shelpers "github.com/hashicorp/nomad/helper/stats"
 	"github.com/shirou/gopsutil/cpu"
 )
 
 func (h *HostStatsCollector) collectCPUStats() (cpus []*CPUStats, totalTicks float64, err error) {
 
+	ctx := context.WithValue(context.Background(), helper.CtxNomadKey("logger"), h.logger)
+
 	ticksConsumed := 0.0
-	cpuStats, err := cpu.Times(true)
+	cpuStats, err := cpu.TimesWithContext(ctx, true)
 	if err != nil {
 		return nil, 0.0, err
 	}
