@@ -339,79 +339,6 @@ func (c *CheckRestart) Merge(o *CheckRestart) *CheckRestart {
 	return nc
 }
 
-// The ServiceCheck data model represents the consul health check that
-// Nomad registers for a Task
-type ServiceCheck struct {
-	Id            string
-	Name          string
-	Type          string
-	Command       string
-	Args          []string
-	Path          string
-	Protocol      string
-	PortLabel     string `mapstructure:"port"`
-	AddressMode   string `mapstructure:"address_mode"`
-	Interval      time.Duration
-	Timeout       time.Duration
-	InitialStatus string `mapstructure:"initial_status"`
-	TLSSkipVerify bool   `mapstructure:"tls_skip_verify"`
-	Header        map[string][]string
-	Method        string
-	CheckRestart  *CheckRestart `mapstructure:"check_restart"`
-	GRPCService   string        `mapstructure:"grpc_service"`
-	GRPCUseTLS    bool          `mapstructure:"grpc_use_tls"`
-}
-
-// The Service model represents a Consul service definition
-type Service struct {
-	Id           string
-	Name         string
-	Tags         []string
-	CanaryTags   []string `mapstructure:"canary_tags"`
-	PortLabel    string   `mapstructure:"port"`
-	AddressMode  string   `mapstructure:"address_mode"`
-	Checks       []ServiceCheck
-	CheckRestart *CheckRestart `mapstructure:"check_restart"`
-	Connect      *ConsulConnect
-}
-
-func (s *Service) Canonicalize(t *Task, tg *TaskGroup, job *Job) {
-	if s.Name == "" {
-		s.Name = fmt.Sprintf("%s-%s-%s", *job.Name, *tg.Name, t.Name)
-	}
-
-	// Default to AddressModeAuto
-	if s.AddressMode == "" {
-		s.AddressMode = "auto"
-	}
-
-	// Canonicalize CheckRestart on Checks and merge Service.CheckRestart
-	// into each check.
-	for i, check := range s.Checks {
-		s.Checks[i].CheckRestart = s.CheckRestart.Merge(check.CheckRestart)
-		s.Checks[i].CheckRestart.Canonicalize()
-	}
-}
-
-type ConsulConnect struct {
-	SidecarService *ConsulSidecarService `mapstructure:"sidecar_service"`
-}
-
-type ConsulSidecarService struct {
-	Port  string
-	Proxy *ConsulProxy
-}
-
-type ConsulProxy struct {
-	Upstreams []*ConsulUpstream
-}
-
-type ConsulUpstream struct {
-	//FIXME Pointers?
-	DestinationName string `mapstructure:"destination_name"`
-	LocalBindPort   int    `mapstructure:"local_bind_port"`
-}
-
 // EphemeralDisk is an ephemeral disk object
 type EphemeralDisk struct {
 	Sticky  *bool
@@ -628,6 +555,9 @@ func (g *TaskGroup) Canonicalize(job *Job) {
 	}
 	for _, n := range g.Networks {
 		n.Canonicalize()
+	}
+	for _, s := range g.Services {
+		s.Canonicalize(nil, g, job)
 	}
 }
 
