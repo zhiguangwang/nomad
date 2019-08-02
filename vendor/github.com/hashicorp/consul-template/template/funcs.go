@@ -15,7 +15,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/burntsushi/toml"
+	"github.com/BurntSushi/toml"
 	dep "github.com/hashicorp/consul-template/dependency"
 	"github.com/pkg/errors"
 	yaml "gopkg.in/yaml.v2"
@@ -1155,4 +1155,9 @@ func modulo(b, a interface{}) (interface{}, error) {
 	default:
 		return nil, fmt.Errorf("modulo: unknown type for %q (%T)", av, a)
 	}
+}
+
+// blacklisted always returns an error, to be used in place of blacklisted template functions
+func blacklisted(...string) (string, error) {
+	return "", errors.New("function is disabled")
 }

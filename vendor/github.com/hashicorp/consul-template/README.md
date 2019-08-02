@@ -302,7 +302,8 @@ vault {
 
   # This tells Consul Template to load the Vault token from the contents of a file.
   # If this field is specified:
-  # - Consul Template will not try to renew the Vault token.
+  # - by default Consul Template will not try to renew the Vault token, if you want it
+  # to renew you will nee dto specify renew_token = true as below.
   # - Consul Template will periodically stat the file and update the token if it has
   # changed.
   # vault_agent_token_file = "/tmp/vault/agent/token"
@@ -493,6 +494,10 @@ template {
   # that does not conflict with the output file itself.
   left_delimiter  = "{{"
   right_delimiter = "}}"
+
+  # These are functions that are not permitted in the template. If a template
+  # includes one of these functions, it will exit with an error.
+  function_blacklist = []
 
   # This is the `minimum(:maximum)` to wait before rendering a new template to
   # disk and triggering a command, separated by a colon (`:`). If the optional
@@ -825,7 +830,7 @@ To access a versioned secret value (for the K/V version 2 backend):
 
 When omitting the `?version` parameter, the latest version of the secret will be
 fetched. Note the nested `.Data.data` syntax when referencing the secret value.
-For more information about using the K/V v2 backend, see the 
+For more information about using the K/V v2 backend, see the
 [Vault Documentation](https://www.vaultproject.io/docs/secrets/kv/kv-v2.html).
 
 When using Vault versions 0.10.0/0.10.1, the secret path will have to be prefixed
@@ -1494,8 +1499,8 @@ plugin.
 {{ plugin "my-plugin" }}
 ```
 
-The plugin can take an arbitrary number of string arguments, and can be the 
-target of a pipeline that produces strings as well. This is most commonly 
+The plugin can take an arbitrary number of string arguments, and can be the
+target of a pipeline that produces strings as well. This is most commonly
 combined with a JSON filter for customization:
 
 ```liquid
@@ -1798,7 +1803,7 @@ $ NAME [INPUT...]
   that is found on the `PATH`.
 
 - `INPUT` - input from the template. There will be one INPUT for every argument passed
-  to the `plugin` function. If the arguments contain whitespace, that whitespace 
+  to the `plugin` function. If the arguments contain whitespace, that whitespace
   will be passed as if the argument were quoted by the shell.
 
 #### Important Notes
@@ -2227,7 +2232,7 @@ following to generate all binaries:
 $ make build
 ```
 
-If you want to run the tests, first [install consul locally](https://www.consul.io/docs/install/index.html), then:
+If you want to run the tests, first install [consul](https://www.consul.io/docs/install/index.html) and [vault](https://www.vaultproject.io/docs/install/) locally, then:
 
 ```shell
 $ make test

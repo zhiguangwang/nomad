@@ -14,7 +14,7 @@ GOTAGS ?=
 GOMAXPROCS ?= 4
 
 # Get the project metadata
-GOVERSION := 1.12.5
+GO_DOCKER_VERSION ?= 1.12
 PROJECT := $(CURRENT_DIR:$(GOPATH)/src/%=%)
 OWNER := $(notdir $(patsubst %/,%,$(dir $(PROJECT))))
 NAME := $(notdir $(PROJECT))
@@ -44,9 +44,6 @@ LD_FLAGS ?= \
 
 # List of Docker targets to build
 DOCKER_TARGETS ?= alpine light scratch
-
-# List of tests to run
-TEST ?= ./...
 
 # Create a cross-compile target for every os-arch pairing. This will generate
 # a make target for each os/arch like "make linux/amd64" as well as generate a
@@ -86,7 +83,7 @@ pristine:
 		--dns="8.8.8.8" \
 		--volume="${CURRENT_DIR}:/go/src/${PROJECT}" \
 		--workdir="/go/src/${PROJECT}" \
-		"golang:${GOVERSION}" env GOCACHE=/tmp make -j4 build
+		"golang:${GO_DOCKER_VERSION}" env GOCACHE=/tmp make -j4 build
 
 # bootstrap installs the necessary go tools for development or build.
 bootstrap:
@@ -149,6 +146,7 @@ define make-docker-target
 			--file="docker/${1}/Dockerfile" \
 			--build-arg="LD_FLAGS=${LD_FLAGS}" \
 			--build-arg="GOTAGS=${GOTAGS}" \
+			--build-arg="GOVERSION=${GO_DOCKER_VERSION}" \
 			$(if $(filter $1,scratch),--tag="${OWNER}/${NAME}",) \
 			--tag="${OWNER}/${NAME}:${1}" \
 			--tag="${OWNER}/${NAME}:${VERSION}-${1}" \
@@ -173,7 +171,7 @@ $(foreach target,$(DOCKER_TARGETS),$(eval $(call make-docker-target,$(target))))
 # test runs the test suite.
 test:
 	@echo "==> Testing ${NAME}"
-	@go test -timeout=30s -parallel=20 -failfast -tags="${GOTAGS}" ./... ${TESTARGS}
+	@go test -count=1 -timeout=30s -parallel=20 -failfast -tags="${GOTAGS}" ./... ${TESTARGS}
 .PHONY: test
 
 # test-race runs the test suite.
