@@ -58,6 +58,10 @@ driver) but will be removed in a future release.
 - `disable_remote_exec` `(bool: false)` - Specifies if the client should disable
   remote task execution to tasks running on this client.
 
+- `enable_insecure_template_functions` `(bool: false)` - Specifies if the client
+  should enable template rendering functions that can leak information from the
+  client host to templates.
+
 - `meta` `(map[string]string: nil)` - Specifies a key-value map that annotates
   with user-defined metadata.
 

@@ -108,6 +108,10 @@ type Config struct {
 	// for security bulletins
 	DisableAnonymousSignature bool `hcl:"disable_anonymous_signature"`
 
+	// EnableInsecureTemplateFunctions enables templates to include functions
+	// that are unsafe because they expose information from the client host.
+	EnableInsecureTemplateFunctions bool `hcl:"enable_insecure_template_functions"`
+
 	// Consul contains the configuration for the Consul Agent and
 	// parameters necessary to register services, their checks, and
 	// discover the current Nomad servers.
@@ -667,6 +671,7 @@ func DevConfig() *Config {
 	conf.DevMode = true
 	conf.EnableDebug = true
 	conf.DisableAnonymousSignature = true
+	conf.EnableInsecureTemplateFunctions = false
 	conf.Consul.AutoAdvertise = helper.BoolToPtr(true)
 	if runtime.GOOS == "darwin" {
 		conf.Client.NetworkInterface = "lo0"
@@ -824,6 +829,9 @@ func (c *Config) Merge(b *Config) *Config {
 	}
 	if b.DisableAnonymousSignature {
 		result.DisableAnonymousSignature = true
+	}
+	if b.EnableInsecureTemplateFunctions {
+		result.EnableInsecureTemplateFunctions = true
 	}
 
 	// Apply the telemetry config
